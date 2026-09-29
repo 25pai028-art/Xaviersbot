@@ -66,6 +66,16 @@ Everything runs CPU-only. Plan for about **10 GB of disk** for models (LLM 3.4 G
 | `python -m scripts.crawl --stats` | What is indexed, plus the latest errors |
 | `python -m scripts.crawl --url https://sxca.edu.in/admissions/tuition-fees/` | Crawl one URL |
 
+### Full crawl on Google Colab (free cloud GPU)
+
+Embedding the whole site takes hours on a laptop CPU. It takes minutes on Colab's free T4 GPU, and Colab can also run OCR (Tesseract with Hindi and Gujarati).
+
+1. Open `notebooks/colab_full_crawl.ipynb` in Colab (colab.research.google.com → File → Upload notebook).
+2. Choose Runtime → Change runtime type → T4 GPU, then run all cells.
+3. When it asks for a read-only GitHub token, paste one. The repository is private, and the token is not stored.
+4. The finished knowledge base is saved to Google Drive as `MyDrive/xaviersbot/xaviersbot-data.zip`, with checkpoints after each stage. If Colab disconnects, run all cells again to resume.
+5. On the laptop, stop the server, then run `ren data data-old` and `powershell Expand-Archive xaviersbot-data.zip -DestinationPath data`.
+
 ### How the deep crawl works
 
 1. **Crawl.** URLs are discovered from:
