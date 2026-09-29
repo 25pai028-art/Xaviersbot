@@ -47,7 +47,6 @@ def test_misconduct_is_refused(q):
 @pytest.mark.parametrize("q", [
     "Who won the IPL in 2025?", "What's the weather in Ahmedabad today?", "Give me a recipe for paneer tikka",
     "Tell me a joke", "Write a Python program to reverse a string", "What is the capital of France?",
-    "Who made you?",
 ])
 def test_off_topic_is_redirected(q):
     assert check_input(q).kind == "off_topic"
@@ -112,3 +111,39 @@ def test_addressing_the_bot_is_removed_with_the_abuse():
     g = check_input("wtf is the email of the examination office, useless bot")
     assert g.question == "is the email of the examination office"
     assert check_input("Is there a chatbot club?").question == "Is there a chatbot club?"  # no abuse: untouched
+
+
+# ---------------------------------------------------------------- small talk
+@pytest.mark.parametrize("q, kind", [
+    ("okay", "ack"), ("Ok", "ack"), ("k", "ack"), ("got it!", "ack"), ("hmm", "ack"), ("theek hai", "ack"),
+    ("hi", "greeting"), ("Hello there!", "greeting"), ("good morning", "greeting"), ("namaste", "greeting"),
+    ("thanks", "thanks"), ("Thank you so much 🙏", "thanks"), ("dhanyavad", "thanks"),
+    ("bye", "bye"), ("that's all", "bye"),
+    ("how are you?", "how_are_you"),
+    ("who are you", "identity"), ("Who made you?", "identity"), ("what can you do?", "identity"),
+])
+def test_small_talk_is_recognised(q, kind):
+    g = check_input(q)
+    assert g.kind == "small_talk" and g.small_talk == kind
+
+
+@pytest.mark.parametrize("q, rest", [
+    ("ok, and what is the BCA fee?", "and what is the BCA fee?"),
+    ("thanks. Who is the principal?", "Who is the principal?"),
+    ("okay what about hostel", "what about hostel"),
+])
+def test_leading_acknowledgement_is_dropped_from_real_questions(q, rest):
+    g = check_input(q)
+    assert g.kind == "ok" and g.question == rest
+
+
+@pytest.mark.parametrize("q", ["Is the hostel okay for girls?", "Good morning assembly timings?", "Hi, what is the BCA fee?"])
+def test_questions_containing_small_talk_words_are_still_questions(q):
+    assert check_input(q).kind != "small_talk"
+
+
+async def test_graph_answers_small_talk_instantly(monkeypatch):
+    text, final = await _run("okay", monkeypatch)  # _run fails the test if search or the LLM is touched
+    assert text.startswith("Alright!") and final["answered"] is True
+    text, _ = await _run("hi", monkeypatch)
+    assert "Xavier's Assistant" in text

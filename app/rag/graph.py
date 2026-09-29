@@ -1,13 +1,14 @@
 """The answering workflow as a LangGraph state machine.
 
-    guard ─┬─ cheating / hacking ─► refuse ─► END
+    guard ─┬─ greeting / thanks / okay / bye ─► small_talk ─► END
+           ├─ cheating / hacking ─► refuse ─► END
            ├─ out of scope ───────► out_of_scope ─► END
            ├─ abuse only ─────────► calm ─► END
            └─ ok (abuse stripped) ─► prepare ─► retrieve ─┬─ relevant ──► generate ─► verify ─► END
                                                            ├─ weak, first try ─► rewrite ─► retrieve
                                                            └─ weak after retry ─► no_answer ─► END
 
-- guard:     rule-based input guardrails (no LLM): refuse misconduct with the official
+- guard:     rule-based input guardrails (no LLM): answer small talk instantly, refuse misconduct with the official
              channel, redirect off-topic questions, de-escalate pure abuse, strip profanity
 - prepare:   make follow-ups self-contained, expand abbreviations (BCA, HOD, CoE…)
 - retrieve:  hybrid vector + keyword search, relevance grading, freshness, neighbour chunk
@@ -37,7 +38,7 @@ from app.llm.base import ChatMessage, LLMError
 from app.llm.factory import get_llm
 from app.rag.embeddings import embed_query
 from app.rag.factcheck import check_answer, is_no_info_answer
-from app.rag.prompts import (CALM_MESSAGE, MISCONDUCT_MESSAGE, NO_INFO_MESSAGE, OUT_OF_SCOPE_MESSAGE,
+from app.rag.prompts import (CALM_MESSAGE, MISCONDUCT_MESSAGE, NO_INFO_MESSAGE, OUT_OF_SCOPE_MESSAGE, SMALL_TALK_MESSAGES,
                              build_system_prompt, build_user_turn, format_context)
 from app.rag.query import contextualize, expand_abbreviations, llm_rewrite
 from app.rag.retriever import Retrieval, hybrid_search
@@ -53,7 +54,8 @@ BUSY_MESSAGE = "The assistant is busy or temporarily unavailable. Please try aga
 
 class RAGState(TypedDict, total=False):
     question: str  # after the guard: profanity removed
-    guard: str  # ok | misconduct | off_topic | abuse_only
+    guard: str  # ok | misconduct | off_topic | abuse_only | small_talk
+    small_talk: str  # greeting | thanks | bye | how_are_you | identity | ack
     history: list[ChatMessage]
     grade_query: str  # self-contained question in the user's words
     search_query: str  # grade_query + expansions / LLM rewrite
@@ -84,11 +86,18 @@ async def guard(state: RAGState) -> RAGState:
     g = check_input(state["question"])
     if g.abusive:
         log.info("guard: abusive language removed")
-    return {"question": g.question, "guard": g.kind}
+    return {"question": g.question, "guard": g.kind, "small_talk": g.small_talk}
 
 
 def after_guard(state: RAGState) -> str:
-    return {"misconduct": "refuse", "off_topic": "out_of_scope", "abuse_only": "calm"}.get(state["guard"], "prepare")
+    return {"misconduct": "refuse", "off_topic": "out_of_scope", "abuse_only": "calm",
+            "small_talk": "small_talk"}.get(state["guard"], "prepare")
+
+
+async def small_talk(state: RAGState) -> RAGState:
+    text = SMALL_TALK_MESSAGES[state["small_talk"]].format(bot_name=get_settings().app_name)
+    get_stream_writer()({"type": "token", "text": text})
+    return {"answer": text, "answered": True, "reason": "guard: small talk"}
 
 
 async def refuse(state: RAGState) -> RAGState:
@@ -193,6 +202,7 @@ def build_graph():
     g.add_node("refuse", refuse)
     g.add_node("out_of_scope", out_of_scope)
     g.add_node("calm", calm)
+    g.add_node("small_talk", small_talk)
     g.add_node("prepare", prepare)
     g.add_node("retrieve", retrieve)
     g.add_node("rewrite", rewrite)
@@ -200,8 +210,8 @@ def build_graph():
     g.add_node("generate", generate)
     g.add_node("verify", verify)
     g.add_edge(START, "guard")
-    g.add_conditional_edges("guard", after_guard, ["prepare", "refuse", "out_of_scope", "calm"])
-    for node in ("refuse", "out_of_scope", "calm"):
+    g.add_conditional_edges("guard", after_guard, ["prepare", "refuse", "out_of_scope", "calm", "small_talk"])
+    for node in ("refuse", "out_of_scope", "calm", "small_talk"):
         g.add_edge(node, END)
     g.add_edge("prepare", "retrieve")
     g.add_conditional_edges("retrieve", after_retrieve, ["generate", "rewrite", "no_answer"])

@@ -65,7 +65,7 @@ _OFF_TOPIC = [
     r"\b(bitcoin|crypto|stock|share market|sensex|nifty)\b", r"\b(election|prime minister|chief minister|political party)\b",
     r"\bcapital of\b", r"\b(write|generate|debug|fix)\b.{0,20}\b(code|program|script|function|sql query)\b",
     r"\b(solve|integrate|differentiate|calculate)\b.{0,30}\b(equation|integral|derivative|problem|sum)\b",
-    r"\btranslate\b", r"\b(chatgpt|openai|who (made|created|built) you|are you (an? )?(ai|robot|human))\b",
+    r"\btranslate\b", r"\b(chatgpt|openai)\b",
     r"\b(girlfriend|boyfriend|date me|love me|marry)\b",
 ]
 OFF_TOPIC = re.compile("|".join(_OFF_TOPIC), re.IGNORECASE)
@@ -84,12 +84,36 @@ COLLEGE_TOPIC = re.compile(
 )
 _NON_LATIN = re.compile(r"[^\x00-\x7F]")
 
+# ---------------------------------------------------------------- small talk
+# Whole-message conversational turns: answered instantly, never searched.
+_END = r"[\s!.?,:)🙂😊👍🙏]*$"
+SMALL_TALK: list[tuple[str, re.Pattern]] = [
+    ("greeting", re.compile(r"^(hi+|hello+|hey+|hii+|helo|hlo|good (morning|afternoon|evening|day)|namaste|namaskar|"
+                            r"kem cho|hola|greetings|yo|नमस्ते|નમસ્તે)( there| bot| xavier'?s assistant)?" + _END, re.I)),
+    ("thanks", re.compile(r"^(thanks?( a lot| so much| you( so much| very much)?)?|thank u|thx|ty|tysm|dhanyavaa?d|"
+                          r"shukriya|aabhar|abhar|धन्यवाद|ધન્યવાદ|thanks? (for|that) .{0,30})" + _END, re.I)),
+    ("bye", re.compile(r"^(bye+|good ?bye|see (you|ya)( later)?|tata|take care|good night|that'?s all|nothing else|"
+                       r"no thanks?|no,? that'?s all)" + _END, re.I)),
+    ("how_are_you", re.compile(r"^(how are (you|u)|how r u|how'?s it going|kaise ho|kem cho majama|what'?s up|sup)( today)?"
+                               + _END, re.I)),
+    ("identity", re.compile(r"^(who are (you|u)|what are you|what can you do|what do you do|are you (an? )?(ai|bot|robot|"
+                            r"human|real person)|who (made|created|built|developed) you|what is your name|your name)"
+                            + _END, re.I)),
+    ("ack", re.compile(r"^(ok+a*y*|okie|k+|kk|alright|all right|fine|got it|understood|i see|cool|great|nice|good|"
+                       r"awesome|perfect|hmm+|ah+|oh+|sure|yes|yeah|yep|no|nope|noted|done|right|haan|ha|theek hai|"
+                       r"thik hai|achha|acha|barabar|saru)( then| thanks?| thank you)?" + _END, re.I)),
+]
+# A leading acknowledgement before a real question: "ok, and what is the BCA fee?"
+_LEADING_ACK = re.compile(r"^(ok+a*y*|okie|alright|fine|got it|cool|great|thanks?|thank you|hmm+|sure|yes|no|acha|achha)"
+                          r"[\s,.!-]+(?=\w)", re.I)
+
 
 @dataclass
 class GuardResult:
-    kind: Literal["ok", "misconduct", "off_topic", "abuse_only"]
+    kind: Literal["ok", "misconduct", "off_topic", "abuse_only", "small_talk"]
     question: str  # cleaned question (profanity removed)
     abusive: bool = False
+    small_talk: str = ""  # greeting | thanks | bye | how_are_you | identity | ack
 
 
 # How an insult is addressed ("you ___ bot", "…, bot") — removed together with the insult.
@@ -104,6 +128,10 @@ def _strip_profanity(text: str) -> str:
 
 def check_input(question: str) -> GuardResult:
     q = question.strip()
+    for kind, pattern in SMALL_TALK:
+        if pattern.match(q):
+            return GuardResult(kind="small_talk", question=q, small_talk=kind)
+    q = _LEADING_ACK.sub("", q)  # "ok, what about hostel?" → "what about hostel?"
     if MISCONDUCT.search(q):
         return GuardResult(kind="misconduct", question=q)
     abusive = bool(PROFANITY.search(q))
