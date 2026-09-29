@@ -42,9 +42,10 @@ from app.llm.factory import get_llm
 from app.rag.embeddings import embed_query
 from app.rag.factcheck import check_answer, is_no_info_answer
 from app.rag.prompts import (CALM_MESSAGE, MISCONDUCT_MESSAGE, NO_INFO_MESSAGE, OUT_OF_SCOPE_MESSAGE, SMALL_TALK_MESSAGES,
+                             STALE_NOTE,
                              build_system_prompt, build_user_turn, format_context)
-from app.rag.query import contextualize, expand_abbreviations, llm_rewrite
-from app.rag.retriever import Retrieval, hybrid_search
+from app.rag.query import contextualize, expand_abbreviations, is_time_sensitive, llm_rewrite
+from app.rag.retriever import FRESH_DAYS, Retrieval, content_age_days, hybrid_search
 from app.rag.vectorstore import Hit
 from app.rag.verified import record_use, verified_index
 
@@ -64,6 +65,7 @@ class RAGState(TypedDict, total=False):
     grade_query: str  # self-contained question in the user's words
     search_query: str  # grade_query + expansions / LLM rewrite
     attempts: int
+    time_sensitive: bool  # fees, deadlines, notices, events…: newest source wins
     retrieval: Retrieval
     answer: str
     answered: bool
@@ -123,7 +125,8 @@ async def calm(state: RAGState) -> RAGState:
 
 async def prepare(state: RAGState) -> RAGState:
     q = contextualize(state["question"], state.get("history", []))
-    return {"grade_query": q, "search_query": expand_abbreviations(q), "attempts": 0}
+    return {"grade_query": q, "search_query": expand_abbreviations(q), "attempts": 0,
+            "time_sensitive": is_time_sensitive(q)}
 
 
 async def verified(state: RAGState) -> RAGState:
@@ -164,7 +167,8 @@ def _add_usage(state: RAGState) -> dict:
 
 async def retrieve(state: RAGState) -> RAGState:
     emb = await asyncio.to_thread(embed_query, state["search_query"])
-    r = await asyncio.to_thread(hybrid_search, state["search_query"], emb, None, state["grade_query"])
+    r = await asyncio.to_thread(hybrid_search, state["search_query"], emb, None, state["grade_query"],
+                                state.get("time_sensitive", False))
     log.info("retrieve attempt=%d best=%.3f relevant=%s hits=%s", state["attempts"] + 1, r.best_score, r.relevant,
              [(h.metadata.get("title", "")[:30], h.signals.get("grade")) for h in r.hits])
     return {"retrieval": r, "attempts": state["attempts"] + 1}
@@ -229,13 +233,40 @@ async def verify(state: RAGState) -> RAGState:
     if not get_settings().fact_check_enabled:
         return {}
     # Check against exactly what the model saw: chunk text plus each source's title, URL, date and year.
-    fc = check_answer(answer, format_context(state.get("context_hits") or state["retrieval"].hits), state["question"])
+    hits = state.get("context_hits") or state["retrieval"].hits
+    fc = check_answer(answer, format_context(hits), state["question"])
     if fc.ok:
-        return {}
+        return _stale_note(state, hits, answer)
     log.warning("Fact check failed, unsupported: %s", fc.unsupported)
     get_stream_writer()({"type": "replace", "text": NO_INFO_MESSAGE})
     return {"answer": NO_INFO_MESSAGE, "answered": False,
             "reason": "fact check failed: " + ", ".join(fc.unsupported[:5])}
+
+
+def _stale_note(state: RAGState, hits: list[Hit], answer: str) -> RAGState:
+    """Time-sensitive answer built only on old sources: say how old, so nobody takes a 2025 fee notice
+    as this year's. Added by code (not the model), so it can't be forgotten."""
+    if not state.get("time_sensitive"):
+        return {}
+    dated = [(content_age_days(h.metadata), h) for h in hits if not h.chunk_id.startswith("verified:")]
+    dated = [(a, h) for a, h in dated if a is not None]
+    if not dated or min(a for a, _ in dated) <= FRESH_DAYS:
+        return {}
+    newest = min(dated, key=lambda t: t[0])[1].metadata
+    when = _month_year(newest)
+    note = STALE_NOTE.format(when=when)
+    get_stream_writer()({"type": "token", "text": note})
+    return {"answer": answer + note, "stale": True}
+
+
+def _month_year(meta: dict) -> str:
+    from datetime import datetime
+
+    ay = str(meta.get("academic_year") or "")
+    if meta.get("date"):
+        when = datetime.fromisoformat(meta["date"]).strftime("%B %Y")
+        return f"{when} (academic year {ay})" if ay else when
+    return f"the academic year {ay}" if ay else "an earlier year"
 
 
 def after_generate(state: RAGState) -> str:

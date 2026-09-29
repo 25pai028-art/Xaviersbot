@@ -1,6 +1,6 @@
 """Post-generation fact check.
 
-Every fee/amount, long number, phone number, email and URL in the answer must
+Every fee/amount, long number, date, phone number, email and URL in the answer must
 appear in the retrieved context (or in the user's own question). If one does
 not, the answer is treated as a possible hallucination and replaced.
 """
@@ -17,6 +17,19 @@ AMOUNT = re.compile(r"(?:₹|rs\.?|inr)\s*([\d,]+(?:\.\d+)?)", re.I)
 NUMBER = re.compile(r"(?<![\w.])\d{1,3}(?:,\d{2,3})+(?:\.\d+)?|(?<![\w.,])\d{3,}(?:\.\d+)?(?![\w])")
 
 ACADEMIC_YEAR = re.compile(r"\b(20\d{2})\s*[-–/]\s*(\d{2})\b")
+
+# Dates are checked as whole dates (day + month + year), not as loose numbers: otherwise "26–29 June 2026"
+# passes whenever "26", "29" and "2026" each appear somewhere in the sources.
+_MONTHS = ["jan", "feb", "mar", "apr", "may", "jun", "jul", "aug", "sep", "oct", "nov", "dec"]
+_MONTH = r"(jan(?:uary)?|feb(?:ruary)?|mar(?:ch)?|apr(?:il)?|may|june?|july?|aug(?:ust)?|sep(?:t(?:ember)?)?|oct(?:ober)?|nov(?:ember)?|dec(?:ember)?)"
+_DAY = r"(?<!\d)(\d{1,2})(?:st|nd|rd|th)?(?!\d)"
+_RANGE = r"(?:\s*(?:-|–|—|to|and|&)\s*" + _DAY + r")?"
+DATE_DAY_FIRST = re.compile(_DAY + _RANGE + r"\s*(?:of\s+)?" + _MONTH + r"\b\.?,?(?:\s*'?(\d{4}))?", re.I)
+DATE_MONTH_FIRST = re.compile(r"\b" + _MONTH + r"\b\.?\s+" + _DAY + _RANGE + r"(?:,?\s*(\d{4}))?", re.I)
+DATE_NUMERIC = re.compile(r"(?<![\d/.-])(\d{1,2})[/.-](\d{1,2})[/.-](\d{4}|\d{2})(?![\d/-])(?!\.\d)")
+DATE_ISO = re.compile(r"(?<!\d)(20\d{2})-(\d{2})-(\d{2})(?!\d)")
+
+DateKey = tuple[int, int, int | None]  # (day, month, year or None)
 
 NO_INFO = re.compile(
     r"(don'?t|do not|doesn'?t|does not) (have|contain|include|mention|list|provide)[^.]{0,60}"
@@ -72,7 +85,45 @@ def check_answer(answer: str, context: str, question: str = "") -> FactCheck:
                 continue
         if d not in ev_digits and not re.search(rf"(?<!\d){re.escape(d)}(?!\d)", _digits_spaced(evidence)):
             unsupported.append(token)
+    ev_dates = {k for _, keys in find_dates(evidence) for k in keys}
+    for text, keys in find_dates(answer_wo_links):
+        if not all(_date_supported(k, ev_dates) for k in keys):
+            unsupported.append(text)
     return FactCheck(ok=not unsupported, unsupported=list(dict.fromkeys(unsupported)))
+
+
+def _date(day: str | None, month: int, year: str | None) -> DateKey | None:
+    if not day or not 1 <= int(day) <= 31 or not 1 <= month <= 12:
+        return None
+    y = int(year) if year else None
+    if y is not None and y < 100:
+        y += 2000
+    return int(day), month, y
+
+
+def find_dates(text: str) -> list[tuple[str, list[DateKey]]]:
+    """Every date in the text as (matched text, [(day, month, year|None), …]); a range gives both ends."""
+    found: list[tuple[str, list[DateKey]]] = []
+    for m in DATE_DAY_FIRST.finditer(text):
+        month = _MONTHS.index(m.group(3)[:3].lower()) + 1
+        keys = [_date(d, month, m.group(4)) for d in (m.group(1), m.group(2)) if d]
+        found.append((m.group(0).strip(), [k for k in keys if k]))
+    for m in DATE_MONTH_FIRST.finditer(text):
+        month = _MONTHS.index(m.group(1)[:3].lower()) + 1
+        keys = [_date(d, month, m.group(4)) for d in (m.group(2), m.group(3)) if d]
+        found.append((m.group(0).strip(), [k for k in keys if k]))
+    for m in DATE_NUMERIC.finditer(text):  # Indian order: dd/mm/yyyy
+        k = _date(m.group(1), int(m.group(2)), m.group(3))
+        found.append((m.group(0), [k] if k else []))
+    for m in DATE_ISO.finditer(text):
+        k = _date(m.group(3), int(m.group(2)), m.group(1))
+        found.append((m.group(0), [k] if k else []))
+    return [(t, keys) for t, keys in found if keys]
+
+
+def _date_supported(key: DateKey, evidence: set[DateKey]) -> bool:
+    day, month, year = key
+    return any(d == day and m == month and (year is None or y is None or y == year) for d, m, y in evidence)
 
 
 def _digits_spaced(text: str) -> str:

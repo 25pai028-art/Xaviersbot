@@ -141,6 +141,33 @@ def test_fact_check_understands_short_academic_years():
     assert not check_answer("Scholarships for 2019-2020 are available.", ctx).ok
 
 
+CALENDAR = ("Academic Calendar 2026-27. Last date for Subject selection & fees payment for Sem III, V & VII (UG): "
+            "25 June 2026. After the deadline of 19/06/2025, a late fee of Rs.250/- will be charged.")
+
+
+@pytest.mark.parametrize("good", [
+    "The last date to pay the fees is 25 June 2026.",
+    "Pay by June 25th, 2026.",
+    "The deadline is 25/06/2026.",
+    "The old deadline was 19 June 2025.",
+    "Fees are due on the 25th of June.",
+])
+def test_fact_check_accepts_dates_from_the_sources(good):
+    assert check_answer(good, CALENDAR).ok
+
+
+@pytest.mark.parametrize("bad", [
+    # The real mix-up: late-fee days invented next to a correct deadline.
+    "The last date is 25 June 2026; late fees apply from 26–29 June 2026.",
+    "The last date is 26 June 2026.",
+    "The last date is 25 June 2025.",
+    "Pay between June 20 and 25, 2026.",
+    "The deadline is 30/06/2026.",
+])
+def test_fact_check_rejects_invented_or_mixed_dates(bad):
+    assert not check_answer(bad, CALENDAR).ok
+
+
 def test_fact_check_accepts_source_dates_shown_to_the_model():
     from app.rag.prompts import format_context
 
@@ -148,3 +175,4 @@ def test_fact_check_accepts_source_dates_shown_to_the_model():
               metadata={"url": "https://sxca.edu.in/contact-us/", "title": "Contact us", "date": "2026-03-25"})
     ans = "Email coe@sxca.edu.in (contact page updated 2026-03-25)."
     assert check_answer(ans, format_context([hit])).ok
+    assert check_answer("The contact page was updated on 25 March 2026.", format_context([hit])).ok

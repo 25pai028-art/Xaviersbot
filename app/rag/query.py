@@ -42,6 +42,19 @@ _FOLLOW_UP = re.compile(
     r"|\b(it|its|they|them|their|that|this|those|these|he|she|him|her)\b", re.I)
 
 
+# Questions whose answer changes over time: the newest source must win, old ones are dropped.
+TIME_SENSITIVE = re.compile(
+    r"\b(fees?|due|dues|deadline|last date|pay(ment)?|notices?|circulars?|news|latest|recent|upcoming|current|"
+    r"this (year|semester|sem|month|week|term)|today|tomorrow|events?|fest|festival|exams?|examinations?|"
+    r"time ?tables?|schedule|results?|admissions?|admission form|merit list|calendar|holidays?|vacation|"
+    r"registration|last day|starts?|begin|reopen|placement drive|interview)\b",
+    re.I)
+
+
+def is_time_sensitive(question: str) -> bool:
+    return bool(TIME_SENSITIVE.search(question))
+
+
 def contextualize(question: str, history: list[ChatMessage]) -> str:
     """Make follow-ups ('and the fees?', 'how do I apply for it?') self-contained using the last user turn."""
     prev = next((m.content for m in reversed(history) if m.role == "user"), "")
