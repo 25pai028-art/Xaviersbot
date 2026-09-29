@@ -4,9 +4,9 @@ A retrieval-augmented (RAG) chatbot for **St. Xavier's College (Autonomous), Ahm
 questions only from the college website (crawled automatically) and documents uploaded by an admin,
 and says *"I don't have that information"* instead of guessing.
 
-> **Status:** Phase 1 of 8. It has the crawler, document processing, indexing and a plain-text test chat page.
-> Later phases add hybrid search and fact-checking, the admin panel, the branded widget, multilingual
-> support and voice, faculty meeting booking, security hardening and deployment.
+> **Status:** Phases 1–4 of 8 are done: the deep crawler, hybrid search with fact-checking, the admin panel
+> and the branded chat widget. Still to come: multilingual support and voice, faculty meeting booking,
+> security hardening and deployment.
 
 ## Architecture (Phase 1)
 
@@ -100,9 +100,32 @@ Re-runs are incremental. Unchanged content is not downloaded or embedded again (
 uvicorn app.main:app --reload
 ```
 
-- **http://localhost:8000/test**: the test chat page.
+- **http://localhost:8000/demo**: a page styled like sxca.edu.in with the chat widget on it.
+- **http://localhost:8000/test**: the plain developer test chat page.
 - **http://localhost:8000/health**: the active LLM, whether it is reachable, and the number of indexed chunks.
 - **http://localhost:8000/api/docs**: the API docs.
+
+## Chat widget on the college website
+
+Add one line before `</body>` on sxca.edu.in (in WordPress, with a header/footer scripts plugin or Elementor's custom code):
+
+```html
+<script src="https://CHATBOT-SERVER/widget.js" defer></script>
+```
+
+- A crimson **Ask Xavier's Assistant** button appears at the bottom right of every page. It opens the chat full screen, on desktop and on phones.
+- Any link to `#ask-xavier` on the site also opens the chat.
+- Add the website's address to `CORS_ORIGINS` in `.env` (it already includes `https://sxca.edu.in`).
+- The widget uses a Shadow DOM, so the website's styles and the widget's styles never affect each other.
+- The conversation stays in that browser tab only, until it is closed or **New chat** is pressed. Nothing is saved on the server.
+
+**Colours and text.** The colours come from sxca.edu.in (navy `#243A7B`, crimson `#B8354E`, slate `#37424E`). To change them without editing code, add CSS to the website:
+
+```css
+#xaviers-assistant { --xaviers-navy: #243a7b; --xaviers-crimson: #b8354e; }
+```
+
+Other variables: `--xaviers-slate`, `--xaviers-page`, `--xaviers-surface`, `--xaviers-bubble`, `--xaviers-display-font` and `--xaviers-body-font`. The welcome text, logo, languages shown and office contact details are set in `.env` (`WIDGET_*` and `COLLEGE_OFFICE_*`).
 
 ## Admin panel
 

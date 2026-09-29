@@ -1,0 +1,60 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>St. Xavier's College, Ahmedabad (chatbot demo)</title>
+<link rel="icon" href="/static/widget/crest.png">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Poppins:wght@500;600;700;800&family=Open+Sans:wght@400;600&display=swap">
+<style>
+  /* A stand-in for sxca.edu.in so the widget can be tried locally. Not the real website. */
+  :root { --navy: #243a7b; --crimson: #b8354e; --slate: #37424e; }
+  * { box-sizing: border-box; }
+  body { margin: 0; font: 16px/1.6 "Open Sans", system-ui, sans-serif; color: #2b3240; background: #fff; }
+  .demo-flag { background: #fff6d6; color: #5a4700; text-align: center; font-size: 13px; padding: 6px 16px; }
+  header { background: var(--navy); color: #fff; display: flex; align-items: center; gap: 16px; padding: 14px 24px; flex-wrap: wrap; }
+  header img { width: 64px; height: 64px; }
+  header .name b { display: block; font: 700 clamp(22px, 3.2vw, 34px)/1.1 "Poppins", sans-serif; }
+  header .name span { font-size: 14px; opacity: .9; }
+  header nav { margin-left: auto; display: flex; gap: 18px; flex-wrap: wrap; font: 600 14px "Poppins", sans-serif; }
+  header nav a { color: #fff; text-decoration: none; }
+  .menu { width: 64px; height: 56px; background: var(--crimson); display: grid; place-items: center; }
+  .menu i { display: block; width: 30px; height: 2px; background: #fff; box-shadow: 0 -8px 0 #fff, 0 8px 0 #fff; }
+  .hero { min-height: 220px; background: linear-gradient(120deg, #3c5a3a, #6e8a5c 55%, #a9b39a); display: flex; align-items: flex-end; }
+  .news { display: flex; align-items: center; background: var(--slate); color: #fff; width: 100%; }
+  .news b { background: var(--crimson); font: 700 clamp(16px, 2vw, 24px) "Poppins", sans-serif; padding: 16px 40px 16px 24px; clip-path: polygon(0 0, 92% 0, 100% 50%, 92% 100%, 0 100%); }
+  .news span { padding: 0 20px; font-size: 14px; opacity: .9; }
+  .tiles { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 24px; padding: 48px 24px; max-width: 1200px; margin: 0 auto; }
+  .tile { height: 180px; background: #d9dde6; position: relative; }
+  .tile span { position: absolute; left: 8%; right: 8%; bottom: -18px; background: var(--crimson); color: #fff; text-align: center; font: 700 20px "Poppins", sans-serif; padding: 14px 8px; }
+  main { max-width: 900px; margin: 0 auto; padding: 32px 24px 120px; }
+  h1 { font: 800 clamp(32px, 5vw, 56px)/1.1 "Poppins", sans-serif; color: #2b3240; margin: 20px 0 12px; }
+  code { background: #f1f2f6; padding: 2px 6px; border-radius: 4px; }
+  footer { background: var(--navy); color: #fff; padding: 24px; font-size: 14px; }
+</style>
+</head>
+<body>
+<div class="demo-flag">Demo page for testing the chatbot. It only imitates sxca.edu.in and is not the real college website.</div>
+<header>
+  <img src="/static/widget/crest.png" alt="St. Xavier's College crest">
+  <div class="name"><b>St. Xavier's College</b><span>(Autonomous) | Affiliated to Gujarat University</span></div>
+  <nav><a href="#">079-29708056/7</a><a href="#">info@sxca.edu.in</a><a href="#ask-xavier">Ask the chatbot</a></nav>
+  <div class="menu" aria-hidden="true"><i></i></div>
+</header>
+<section class="hero"><div class="news"><b>Update News Today</b><span>Admission 2026 · Examination notices · Events</span></div></section>
+<section class="tiles">
+  <div class="tile"><span>ABOUT US</span></div>
+  <div class="tile"><span>ADMISSIONS</span></div>
+  <div class="tile"><span>ACADEMICS</span></div>
+  <div class="tile"><span>EXAMINATIONS</span></div>
+</section>
+<main>
+  <h1>Academics</h1>
+  <p>Click <b>Ask Xavier's Assistant</b> at the bottom right to open the chat. On the real website the chatbot is added with a single line before <code>&lt;/body&gt;</code>:</p>
+  <p><code>&lt;script src="https://CHATBOT-SERVER/widget.js" defer&gt;&lt;/script&gt;</code></p>
+  <p>Any link to <code>#ask-xavier</code> also opens the chat, like "Ask the chatbot" in the header above.</p>
+</main>
+<footer>St. Xavier's College (Autonomous), Ahmedabad: demo footer.</footer>
+<script src="/widget.js" defer></script>
+</body>
+</html>

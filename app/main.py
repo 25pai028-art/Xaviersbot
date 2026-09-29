@@ -14,6 +14,7 @@ from app.admin.jobs import mark_interrupted_runs
 from app.admin.routes import LoginRequired
 from app.admin.routes import router as admin_router
 from app.api.chat import router as chat_router
+from app.api.widget import router as widget_router
 from app.config import BASE_DIR, get_settings
 from app.db.session import get_engine
 from app.jobs import scheduler
@@ -60,6 +61,7 @@ app.add_middleware(
     allow_headers=["Content-Type"],
 )
 app.include_router(chat_router)
+app.include_router(widget_router)
 app.include_router(admin_router)
 app.mount("/static", StaticFiles(directory=BASE_DIR / "app" / "static"), name="static")
 
@@ -98,7 +100,20 @@ async def health():
 
 @app.get("/", include_in_schema=False)
 def index():
-    return RedirectResponse("/test")
+    return RedirectResponse("/demo")
+
+
+@app.get("/widget.js", include_in_schema=False)
+def widget_script():
+    """The one file the college website includes: <script src="https://SERVER/widget.js" defer></script>."""
+    return FileResponse(BASE_DIR / "app" / "static" / "widget" / "widget.js", media_type="application/javascript",
+                        headers={"Cache-Control": "public, max-age=300", "X-Content-Type-Options": "nosniff"})
+
+
+@app.get("/demo", include_in_schema=False)
+def demo_page():
+    """A page styled like sxca.edu.in with the widget on it, for local testing."""
+    return FileResponse(BASE_DIR / "app" / "static" / "demo.html")
 
 
 @app.get("/test", include_in_schema=False)
