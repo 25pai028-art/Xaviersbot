@@ -1,0 +1,122 @@
+"""Central configuration. Every setting comes from environment variables / `.env`.
+
+See `.env.example` for documentation of each setting.
+"""
+from __future__ import annotations
+
+from functools import lru_cache
+from pathlib import Path
+from typing import Annotated
+
+from pydantic import Field, field_validator
+from pydantic_settings import BaseSettings, NoDecode, SettingsConfigDict
+
+# Comma-separated list in .env (e.g. `A,B,C`) instead of JSON.
+CsvList = Annotated[list[str], NoDecode]
+
+BASE_DIR = Path(__file__).resolve().parent.parent
+
+
+def _csv(value: str | list[str]) -> list[str]:
+    if isinstance(value, list):
+        return value
+    return [v.strip() for v in value.split(",") if v.strip()]
+
+
+class Settings(BaseSettings):
+    model_config = SettingsConfigDict(env_file=BASE_DIR / ".env", env_file_encoding="utf-8", extra="ignore")
+
+    # --- General ---
+    app_name: str = "Xavier's Assistant"
+    environment: str = "development"
+    data_dir: Path = BASE_DIR / "data"
+    log_level: str = "INFO"
+
+    # --- LLM ---
+    llm_provider: str = "ollama"  # ollama | gemini | anthropic | openai
+    llm_temperature: float = 0.1
+    llm_max_output_tokens: int = 400
+    llm_timeout_seconds: float = 180.0
+
+    ollama_base_url: str = "http://localhost:11434"
+    ollama_model: str = "qwen3.5:4b"
+    ollama_num_ctx: int = 8192
+    ollama_keep_alive: str = "30m"
+
+    gemini_api_key: str = ""
+    gemini_model: str = "gemini-2.5-flash"
+    gemini_thinking_budget: int = 0
+
+    anthropic_api_key: str = ""
+    anthropic_model: str = "claude-opus-5-5"
+    anthropic_effort: str = "low"
+
+    openai_api_key: str = ""
+    openai_model: str = "gpt-4.1-mini"
+    openai_base_url: str = ""
+
+    # --- Embeddings / retrieval ---
+    embedding_model: str = "BAAI/bge-m3"
+    embedding_device: str = "cpu"
+    embedding_batch_size: int = 8
+    embedding_max_seq_length: int = 1024
+    chunk_target_tokens: int = 350
+    chunk_overlap_tokens: int = 50
+    retrieval_top_k: int = 3
+    max_context_tokens: int = 1100
+    similarity_threshold: float = 0.5
+    chat_history_turns: int = 3
+    rag_query_rewrite: bool = True
+    fact_check_enabled: bool = True
+    # Legitimate channel offered when refusing cheating/hacking requests (from sxca.edu.in/contact-us/).
+    guard_exam_office_contact: str = "Examination Office (coe@sxca.edu.in, 079-26308055)"
+
+    # --- Crawler ---
+    crawl_start_urls: CsvList = Field(default_factory=lambda: ["https://sxca.edu.in/"])
+    crawl_allowed_domains: CsvList = Field(
+        default_factory=lambda: ["sxca.edu.in", "admissions.sxca.edu.in", "library.sxca.edu.in"]
+    )
+    crawl_blocked_domains: CsvList = Field(
+        default_factory=lambda: ["lms.sxca.edu.in", "portal.sxca.edu.in", "erp.sxca.edu.in"]
+    )
+    crawl_include_google_drive: bool = True
+    crawl_max_pages: int = 5000
+    crawl_max_depth: int = 6
+    crawl_max_file_mb: float = 25.0
+    crawl_delay_seconds: float = 1.0
+    crawl_timeout_seconds: float = 30.0
+    crawl_min_upload_year: int = 2022
+    crawl_user_agent: str = "SXCA-Chatbot-Crawler/1.0 (+https://sxca.edu.in/; official college assistant)"
+    crawl_use_playwright: bool = True
+    crawl_playwright_min_chars: int = 200
+    crawl_ocr_max_pages: int = 30
+    ocr_languages: str = "eng+hin+guj"
+    tesseract_cmd: str = ""
+
+    # --- API ---
+    cors_origins: CsvList = Field(default_factory=lambda: ["https://sxca.edu.in", "http://localhost:8000"])
+    max_message_chars: int = 1000
+
+    _split_lists = field_validator(
+        "crawl_start_urls", "crawl_allowed_domains", "crawl_blocked_domains", "cors_origins", mode="before"
+    )(_csv)
+
+    @property
+    def sqlite_path(self) -> Path:
+        return self.data_dir / "sxca.db"
+
+    @property
+    def chroma_dir(self) -> Path:
+        return self.data_dir / "chroma"
+
+    @property
+    def cache_dir(self) -> Path:
+        return self.data_dir / "cache"
+
+
+@lru_cache
+def get_settings() -> Settings:
+    s = Settings()
+    s.data_dir.mkdir(parents=True, exist_ok=True)
+    s.cache_dir.mkdir(parents=True, exist_ok=True)
+    return s

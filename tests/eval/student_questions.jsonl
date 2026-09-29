@@ -1,0 +1,30 @@
+{"q": "Who is Nisarg Sir, and what department does he head?", "expect": ["data-science-department", "mr-nisarg-vyas", "nisarg-patil", "faculty-science"], "note": "Two Nisargs on the site: Nisarg Vyas (Data Science, nisarg.vyas@sxca.edu.in) and Mr. Nisarg Patil (Biochemistry & Biotechnology, nisarg.patil@sxca.edu.in); both Assistant Professors. Neither is a head (Data Science head: Dr. Pravida Raja A.C.); the answer must correct that premise"}
+{"q": "How can I contact Nisarg Sir for project guidance?", "expect": ["mr-nisarg-vyas", "nisarg-patil"], "note": "Two Nisargs on the site: Nisarg Vyas (Data Science, nisarg.vyas@sxca.edu.in) and Mr. Nisarg Patil (Biochemistry & Biotechnology, nisarg.patil@sxca.edu.in); both Assistant Professors. Good answer mentions both or asks which one"}
+{"q": "Where is David Roy's office located?", "expect": null, "note": "Name not seen in crawled pages yet; verify after the full crawl. If absent, the bot must refuse"}
+{"q": "What are David Roy's office hours for this semester?", "expect": [], "note": "Office hours are not published on the website"}
+{"q": "Can you give me the email address for Nisarg Sir?", "expect": ["mr-nisarg-vyas", "nisarg-patil"], "note": "Two Nisargs on the site: Nisarg Vyas (Data Science, nisarg.vyas@sxca.edu.in) and Mr. Nisarg Patil (Biochemistry & Biotechnology, nisarg.patil@sxca.edu.in); both Assistant Professors. Good answer mentions both or asks which one"}
+{"q": "Who teaches the advanced data structures class, is it David Roy?", "expect": null, "note": "Verify after the full crawl (computer science faculty and syllabus)"}
+{"q": "What is the total tuition fee for the B.Tech Computer Science program?", "expect": [], "note": "SXCA offers no B.Tech; the bot must not invent a fee"}
+{"q": "When is the last date to pay the semester fees without a fine?", "expect": null, "note": "May be in a fee notice PDF"}
+{"q": "How can I pay my college fees online?", "expect": null, "note": "Site menu has 'Online fee payment'; check where it leads"}
+{"q": "Are there any hidden charges or laboratory fees not included in the main tuition?", "expect": null, "note": "Check the fee structure PDFs"}
+{"q": "What is the installment plan policy for semester fee payments?", "expect": null}
+{"q": "How do I apply for a fee waiver or merit-based scholarship?", "expect": null, "note": "Look for scholarship/freeship pages"}
+{"q": "Who do I contact if my online fee payment failed but money was deducted?", "expect": null, "note": "Probably the Self Finance / college office on the contact page"}
+{"q": "Where can I download the updated academic calendar for 2026?", "expect": ["calendar"]}
+{"q": "What is the minimum attendance percentage required to sit for end-semester exams?", "expect": null, "note": "Possibly in General Instructions or the student handbook"}
+{"q": "How do I apply for a course withdrawal or elective change?", "expect": null}
+{"q": "When will the results for the mid-term examinations be declared?", "expect": null, "note": "Probably only in exam notices"}
+{"q": "What are the criteria to make the Dean's List this year?", "expect": [], "note": "No Dean's List seen on the website"}
+{"q": "What are the timings for the central library on weekends?", "expect": ["library"], "note": "library.sxca.edu.in (Fr. Valles Central Library)"}
+{"q": "How do I register for a hostel room allotment?", "expect": ["faqs", "hostel"]}
+{"q": "Is there a campus medical clinic, and what are its operating hours?", "expect": null}
+{"q": "How can I connect my laptop to the campus Wi-Fi network?", "expect": ["ict-facilities"]}
+{"q": "Where is the lost and found department located on campus?", "expect": [], "note": "Not on the website"}
+{"q": "What companies are visiting the campus for placements this month?", "expect": null, "note": "Only if a recent placement news item exists"}
+{"q": "How do I register with the college placement cell?", "expect": ["career-cell", "placement"]}
+{"q": "What documents are required to get a bonafide certificate?", "expect": ["administrative-assistance", "academic-affairs", "forms"]}
+{"q": "Can I get an extension on submitting my migration certificate?", "expect": null}
+{"q": "When is the annual college cultural fest scheduled to happen?", "expect": null, "note": "Only if a recent news/event item exists"}
+{"q": "How do I form and register a new student club?", "expect": ["clubs"]}
+{"q": "What is the process to get a replacement student ID card?", "expect": null, "note": "Possibly Administrative Assistance"}
