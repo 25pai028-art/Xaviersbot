@@ -1,0 +1,28 @@
+{% extends "base.html" %}
+{% block title %}{{ "Edit" if row.id else "Add" }} official answer{% endblock %}
+{% block content %}
+<p><a href="/admin/answers">← Official answers</a></p>
+<h1>{{ "Edit" if row.id else "Add" }} official answer</h1>
+<div class="card">
+  <form method="post" action="/admin/answers/save">
+    <input type="hidden" name="csrf_token" value="{{ admin.csrf_token }}">
+    <input type="hidden" name="answer_id" value="{{ row.id or '' }}">
+    <input type="hidden" name="from_unanswered" value="{{ from_unanswered }}">
+    <label for="question">Question</label>
+    <input id="question" name="question" value="{{ row.question }}" required maxlength="2000">
+    <label for="alt">Other ways students ask it <span class="hint">(optional, one per line: e.g. “library timings”, “when is the library open on Sunday”)</span></label>
+    <textarea id="alt" name="alt_questions" rows="4">{{ row.alt_questions }}</textarea>
+    <label for="answer">Official answer <span class="hint">(shown to students exactly as written; keep it short and include contact details if useful)</span></label>
+    <textarea id="answer" name="answer" rows="8" required maxlength="8000">{{ row.answer }}</textarea>
+    <label for="url">More information link <span class="hint">(optional)</span></label>
+    <input id="url" name="source_url" type="url" value="{{ row.source_url or '' }}" placeholder="https://sxca.edu.in/…">
+    <label><input type="checkbox" name="active" value="1" {% if row.active %}checked{% endif %}> Active (used by the chatbot)</label>
+    <p class="row"><button type="submit">Save</button></p>
+  </form>
+  {% if row.id %}
+  <form method="post" action="/admin/answers/{{ row.id }}/delete" data-confirm="Delete this official answer?">
+    <input type="hidden" name="csrf_token" value="{{ admin.csrf_token }}"><button type="submit" class="danger">Delete</button>
+  </form>
+  {% endif %}
+</div>
+{% endblock %}

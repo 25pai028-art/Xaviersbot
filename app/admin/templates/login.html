@@ -1,0 +1,18 @@
+{% extends "base.html" %}
+{% block title %}Sign in{% endblock %}
+{% block main_class %}narrow{% endblock %}
+{% block content %}
+<div class="card">
+  <h1>{{ settings.app_name }}: admin</h1>
+  {% if error %}<div class="flash err" role="alert">{{ error }}</div>{% endif %}
+  <form method="post" action="/admin/login" autocomplete="on">
+    <input type="hidden" name="next" value="{{ next }}">
+    <label for="username">Username</label>
+    <input id="username" name="username" value="{{ username or '' }}" autocomplete="username" required autofocus>
+    <label for="password">Password</label>
+    <input id="password" name="password" type="password" autocomplete="current-password" required>
+    <p><button type="submit">Sign in</button></p>
+  </form>
+  <p class="muted">For college staff only. Forgot your password? Ask the super admin to reset it.</p>
+</div>
+{% endblock %}

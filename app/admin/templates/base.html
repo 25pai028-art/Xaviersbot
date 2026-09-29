@@ -1,0 +1,40 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex, nofollow">
+<title>{% block title %}Admin{% endblock %} · {{ settings.app_name }}</title>
+<link rel="stylesheet" href="/static/admin.css">
+<script src="/static/admin.js" defer></script>
+</head>
+<body>
+{% if admin %}
+<header class="topbar">
+  <a class="brand" href="/admin">{{ settings.app_name }} <span>admin</span></a>
+  <button class="menu-toggle" type="button" aria-expanded="false" aria-controls="nav">Menu</button>
+  <nav id="nav" aria-label="Admin sections">
+    {% set path = request.url.path %}
+    <a href="/admin" {% if path == '/admin' %}aria-current="page"{% endif %}>Dashboard</a>
+    <a href="/admin/sources" {% if path.startswith('/admin/sources') %}aria-current="page"{% endif %}>Sources</a>
+    <a href="/admin/upload" {% if path.startswith('/admin/upload') %}aria-current="page"{% endif %}>Upload</a>
+    <a href="/admin/crawl" {% if path.startswith('/admin/crawl') %}aria-current="page"{% endif %}>Crawl</a>
+    <a href="/admin/answers" {% if path.startswith('/admin/answers') %}aria-current="page"{% endif %}>Official answers</a>
+    <a href="/admin/unanswered" {% if path.startswith('/admin/unanswered') %}aria-current="page"{% endif %}>Unanswered</a>
+    <a href="/admin/feedback" {% if path.startswith('/admin/feedback') %}aria-current="page"{% endif %}>Feedback</a>
+    {% if admin.is_super %}<a href="/admin/users" {% if path.startswith('/admin/users') %}aria-current="page"{% endif %}>Users</a>{% endif %}
+    <a href="/admin/audit" {% if path.startswith('/admin/audit') %}aria-current="page"{% endif %}>Audit log</a>
+  </nav>
+  <div class="who">
+    <a href="/admin/account">{{ admin.username }}</a>
+    <form method="post" action="/admin/logout"><input type="hidden" name="csrf_token" value="{{ admin.csrf_token }}"><button class="link">Sign out</button></form>
+  </div>
+</header>
+{% endif %}
+<main class="{% block main_class %}page{% endblock %}">
+  {% if ok %}<div class="flash ok" role="status">{{ ok }}</div>{% endif %}
+  {% if err %}<div class="flash err" role="alert">{{ err }}</div>{% endif %}
+  {% block content %}{% endblock %}
+</main>
+</body>
+</html>

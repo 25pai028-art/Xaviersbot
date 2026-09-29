@@ -1,34 +1,30 @@
-"""FastAPI application entry point: `uvicorn app.main:app`."""
+"""FastAPI application entry point: `uvicorn app.main:app` (one worker: the scheduler runs in-process)."""
 from __future__ import annotations
 
 import asyncio
 import logging
+from contextlib import asynccontextmanager
 
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, RedirectResponse
+from fastapi.staticfiles import StaticFiles
 
+from app.admin.jobs import mark_interrupted_runs
+from app.admin.routes import LoginRequired
+from app.admin.routes import router as admin_router
 from app.api.chat import router as chat_router
 from app.config import BASE_DIR, get_settings
 from app.db.session import get_engine
+from app.jobs import scheduler
 from app.llm.factory import get_llm
 from app.rag import vectorstore
 
 settings = get_settings()
 logging.basicConfig(level=settings.log_level, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
 # Per-request HTTP logs from the HTTP client / Hugging Face are noise at INFO level.
-for noisy in ("httpx", "httpcore", "huggingface_hub", "sentence_transformers"):
+for noisy in ("httpx", "httpcore", "huggingface_hub", "sentence_transformers", "apscheduler"):
     logging.getLogger(noisy).setLevel(logging.WARNING)
-
-app = FastAPI(title=settings.app_name, docs_url="/api/docs" if settings.environment != "production" else None,
-              redoc_url=None)
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=settings.cors_origins,
-    allow_methods=["GET", "POST"],
-    allow_headers=["Content-Type"],
-)
-app.include_router(chat_router)
 
 
 async def _warmup() -> None:
@@ -44,10 +40,48 @@ async def _warmup() -> None:
         log.warning("Warm-up skipped: %s", e)
 
 
-@app.on_event("startup")
-async def _startup() -> None:
-    get_engine()  # create tables
-    asyncio.create_task(_warmup())
+@asynccontextmanager
+async def lifespan(_app: FastAPI):
+    get_engine()  # create / migrate tables
+    mark_interrupted_runs()
+    scheduler.start()
+    warm = asyncio.create_task(_warmup())
+    yield
+    warm.cancel()
+    scheduler.stop()
+
+
+app = FastAPI(title=settings.app_name, docs_url="/api/docs" if not settings.is_production else None,
+              redoc_url=None, lifespan=lifespan)
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=settings.cors_origins,
+    allow_methods=["GET", "POST"],
+    allow_headers=["Content-Type"],
+)
+app.include_router(chat_router)
+app.include_router(admin_router)
+app.mount("/static", StaticFiles(directory=BASE_DIR / "app" / "static"), name="static")
+
+
+@app.middleware("http")
+async def admin_security_headers(request: Request, call_next):
+    response = await call_next(request)
+    if request.url.path.startswith("/admin"):
+        response.headers["X-Frame-Options"] = "DENY"
+        response.headers["X-Content-Type-Options"] = "nosniff"
+        response.headers["Referrer-Policy"] = "same-origin"
+        response.headers["Cache-Control"] = "no-store"
+        response.headers["X-Robots-Tag"] = "noindex, nofollow"
+        response.headers["Content-Security-Policy"] = (
+            "default-src 'self'; img-src 'self' data:; style-src 'self'; script-src 'self'; "
+            "form-action 'self'; frame-ancestors 'none'; base-uri 'none'")
+    return response
+
+
+@app.exception_handler(LoginRequired)
+async def _login_required(request: Request, exc: LoginRequired):
+    return RedirectResponse(f"/admin/login?next={exc.next_url}", status_code=303)
 
 
 @app.get("/health")

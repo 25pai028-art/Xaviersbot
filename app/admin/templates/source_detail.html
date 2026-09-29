@@ -1,0 +1,40 @@
+{% extends "base.html" %}
+{% block title %}{{ src.title }}{% endblock %}
+{% block content %}
+<p><a href="/admin/sources">← All sources</a></p>
+<h1>{{ src.title or "(no title)" }}</h1>
+{% if src.index_status == "processing" %}<div class="flash ok" data-refresh-seconds="3">Extracting text and indexing… this page refreshes automatically.</div>{% endif %}
+
+<div class="card">
+  <table>
+    <tr><th>Address</th><td>{% if src.url.startswith("http") %}<a href="{{ src.url }}" target="_blank" rel="noopener noreferrer">{{ src.url }}</a>{% else %}{{ src.url }}{% endif %}</td></tr>
+    {% if src.section %}<tr><th>Section</th><td>{{ src.section }}</td></tr>{% endif %}
+    {% if src.parent_url %}<tr><th>Linked from</th><td><a href="{{ src.parent_url }}" target="_blank" rel="noopener noreferrer">{{ src.parent_url }}</a>{% if src.link_text and src.source_type != "upload" %} (“{{ src.link_text }}”){% endif %}</td></tr>{% endif %}
+    {% if src.source_type == "upload" %}<tr><th>Uploaded by</th><td>{{ src.link_text }}</td></tr>{% endif %}
+    <tr><th>Type</th><td>{{ src.content_type }} · {{ src.source_type }}{% if src.ocr_used %} · read with OCR{% endif %} · language: {{ src.language }}</td></tr>
+    <tr><th>Status</th><td><span class="badge {{ 'ok' if src.index_status == 'indexed' else 'err' if src.index_status in ('error','blocked') else 'warn' }}">{{ src.index_status }}</span> · {{ src.chunk_count }} chunks
+      {% if src.duplicate_of %} · same text as <a href="/admin/sources/{{ src.duplicate_of }}">#{{ src.duplicate_of }}</a>{% endif %}
+      {% if src.error %}<div class="muted">{{ src.error }}</div>{% endif %}</td></tr>
+    <tr><th>Date</th><td>{{ src.published_at | d }}{% if src.academic_year %} · academic year {{ src.academic_year }}{% endif %}</td></tr>
+    <tr><th>Last fetched / changed</th><td>{{ src.last_crawled_at | dt }} / {{ src.last_changed_at | dt }}</td></tr>
+  </table>
+  <div class="row mt">
+    {% if src.status == "blocked" %}
+      <form method="post" action="/admin/sources/{{ src.id }}/unblock" class="inline"><input type="hidden" name="csrf_token" value="{{ admin.csrf_token }}"><button type="submit">Unblock and index again</button></form>
+    {% else %}
+      {% if src.url.startswith("http") %}
+      <form method="post" action="/admin/sources/{{ src.id }}/recrawl" class="inline"><input type="hidden" name="csrf_token" value="{{ admin.csrf_token }}"><button type="submit" class="secondary">Fetch again now</button></form>
+      {% endif %}
+      <form method="post" action="/admin/sources/{{ src.id }}/delete" class="inline"
+            data-confirm="{{ 'Delete this upload? The chatbot will stop using it.' if src.source_type == 'upload' else 'Remove this page from the chatbot? It will also be skipped by future crawls (you can unblock it later).' }}">
+        <input type="hidden" name="csrf_token" value="{{ admin.csrf_token }}">
+        <button type="submit" class="danger">{{ "Delete" if src.source_type == "upload" else "Remove and block" }}</button>
+      </form>
+    {% endif %}
+  </div>
+</div>
+
+<h2>Text the chatbot uses</h2>
+{% if text %}<pre class="text">{{ text }}</pre>{% if truncated %}<p class="muted">Showing the first 30,000 characters.</p>{% endif %}
+{% else %}<p class="muted">No text.</p>{% endif %}
+{% endblock %}

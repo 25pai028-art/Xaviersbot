@@ -1,0 +1,57 @@
+{% extends "base.html" %}
+{% block title %}Dashboard{% endblock %}
+{% block content %}
+<h1>Dashboard</h1>
+
+{% set pages = by_type | selectattr(1, 'equalto', 'html') | map(attribute=2) | sum %}
+{% set docs = by_type | rejectattr(1, 'equalto', 'html') | selectattr(0, 'equalto', 'website') | map(attribute=2) | sum %}
+{% set uploads = by_type | selectattr(0, 'equalto', 'upload') | map(attribute=2) | sum %}
+<div class="grid">
+  <div class="stat"><div class="label">Web pages indexed</div><div class="value">{{ pages }}</div></div>
+  <div class="stat"><div class="label">Documents (PDF, DOCX, notices)</div><div class="value">{{ docs }}</div></div>
+  <div class="stat"><div class="label">Uploaded by admins</div><div class="value">{{ uploads }}</div></div>
+  <div class="stat"><div class="label">Searchable chunks</div><div class="value">{{ "{:,}".format(chunks) }}</div>
+    {% if pending %}<div class="sub">{{ pending }} waiting to be indexed</div>{% endif %}</div>
+  <div class="stat"><div class="label">Official answers</div><div class="value">{{ counts.verified }}</div></div>
+</div>
+
+<h2>Last 30 days</h2>
+<div class="grid">
+  <div class="stat"><div class="label">Questions asked</div><div class="value">{{ tot.chats }}</div></div>
+  <div class="stat"><div class="label">Not answered</div>
+    <div class="value">{{ "%.0f%%" | format(unanswered_rate) if unanswered_rate is not none else "—" }}</div>
+    <div class="sub"><a href="/admin/unanswered">{{ counts.unanswered }} questions to review</a></div></div>
+  <div class="stat"><div class="label">Answered by official answers</div><div class="value">{{ tot.verified_hits }}</div></div>
+  <div class="stat"><div class="label">Helpful (thumbs up)</div>
+    <div class="value">{{ "%.0f%%" | format(satisfaction) if satisfaction is not none else "—" }}</div>
+    <div class="sub">{{ tot.thumbs_up }} up · <a href="/admin/feedback">{{ tot.thumbs_down }} down</a></div></div>
+  {% if paid %}
+  <div class="stat"><div class="label">AI cost (estimate)</div><div class="value">${{ "%.2f" | format(tot.cost_usd) }}</div>
+    <div class="sub">{{ "{:,}".format(tot.input_tokens + tot.output_tokens) }} tokens</div></div>
+  {% endif %}
+</div>
+
+<div class="card">
+  <div class="row"><strong>System</strong></div>
+  <table>
+    <tr><th>AI model</th><td>{{ llm.provider }} · <code>{{ llm.model }}</code></td></tr>
+    <tr><th>Embedding model</th><td><code>{{ settings.embedding_model }}</code> (local)</td></tr>
+    <tr><th>OCR for scanned notices</th><td>{% if ocr[0] %}<span class="badge ok">on</span> {{ ocr[1] }}{% else %}<span class="badge warn">off</span> Tesseract is not installed on this server{% endif %}</td></tr>
+    <tr><th>Last crawl</th><td>{% if last_run %}{{ last_run.started_at | dt }} · <span class="badge {{ 'ok' if last_run.status == 'completed' else 'warn' }}">{{ last_run.status }}</span> ({{ last_run.trigger }}){% else %}never{% endif %}
+      {% if crawl.running %} · <a href="/admin/crawl">crawl running now</a>{% endif %}</td></tr>
+    <tr><th>Next automatic crawl</th><td>{{ next_crawl | dt if next_crawl else "scheduler off" }}</td></tr>
+  </table>
+</div>
+
+{% if days %}
+<h2>Daily activity</h2>
+<div class="table-wrap"><table>
+  <tr><th>Day</th><th class="num">Questions</th><th class="num">Not answered</th><th class="num">Official</th><th class="num">👍</th><th class="num">👎</th>{% if paid %}<th class="num">Tokens</th><th class="num">Cost</th>{% endif %}</tr>
+  {% for d in days %}
+  <tr><td>{{ d.day | d }}</td><td class="num">{{ d.chats }}</td><td class="num">{{ d.unanswered }}</td><td class="num">{{ d.verified_hits }}</td>
+    <td class="num">{{ d.thumbs_up }}</td><td class="num">{{ d.thumbs_down }}</td>
+    {% if paid %}<td class="num">{{ "{:,}".format(d.input_tokens + d.output_tokens) }}</td><td class="num">${{ "%.3f" | format(d.cost_usd) }}</td>{% endif %}</tr>
+  {% endfor %}
+</table></div>
+{% endif %}
+{% endblock %}

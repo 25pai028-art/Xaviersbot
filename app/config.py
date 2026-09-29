@@ -93,6 +93,27 @@ class Settings(BaseSettings):
     ocr_languages: str = "eng+hin+guj"
     tesseract_cmd: str = ""
 
+    # --- Verified (official) answers ---
+    verified_direct_threshold: float = 0.86  # cosine: answer word for word, no LLM
+    verified_context_threshold: float = 0.72  # cosine: give it to the LLM as the top source
+
+    # --- Admin panel ---
+    admin_session_idle_minutes: int = 30
+    admin_session_max_hours: int = 8
+    admin_max_failed_logins: int = 5
+    admin_lockout_minutes: int = 15
+    upload_max_mb: float = 20.0
+    retention_days: int = 30  # unanswered / thumbs-down question texts are deleted after this
+
+    # --- Background jobs ---
+    scheduler_enabled: bool = True
+    crawl_schedule_day: str = "sun"  # mon..sun, or "*" for daily
+    crawl_schedule_hour: int = 2  # local time on the server
+
+    # --- Paid LLM cost estimate (USD per 1M tokens; 0 = look up known models) ---
+    llm_price_input_per_mtok: float = 0.0
+    llm_price_output_per_mtok: float = 0.0
+
     # --- API ---
     cors_origins: CsvList = Field(default_factory=lambda: ["https://sxca.edu.in", "http://localhost:8000"])
     max_message_chars: int = 1000
@@ -112,6 +133,15 @@ class Settings(BaseSettings):
     @property
     def cache_dir(self) -> Path:
         return self.data_dir / "cache"
+
+    @property
+    def uploads_dir(self) -> Path:
+        # Outside any web-served folder; files are never executed or served back raw.
+        return self.data_dir / "uploads"
+
+    @property
+    def is_production(self) -> bool:
+        return self.environment.lower() == "production"
 
 
 @lru_cache

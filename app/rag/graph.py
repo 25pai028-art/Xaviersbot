@@ -4,13 +4,16 @@
            ├─ cheating / hacking ─► refuse ─► END
            ├─ out of scope ───────► out_of_scope ─► END
            ├─ abuse only ─────────► calm ─► END
-           └─ ok (abuse stripped) ─► prepare ─► retrieve ─┬─ relevant ──► generate ─► verify ─► END
+           └─ ok (abuse stripped) ─► prepare ─► verified ─┬─ official answer matches ─► END
+                                                           └─ retrieve ─┬─ relevant ──► generate ─► verify ─► END
                                                            ├─ weak, first try ─► rewrite ─► retrieve
                                                            └─ weak after retry ─► no_answer ─► END
 
 - guard:     rule-based input guardrails (no LLM): answer small talk instantly, refuse misconduct with the official
              channel, redirect off-topic questions, de-escalate pure abuse, strip profanity
 - prepare:   make follow-ups self-contained, expand abbreviations (BCA, HOD, CoE…)
+- verified:  the college's official Q&A first: a close match is answered word for word (no LLM),
+             a partial match is handed to the LLM as the most important source
 - retrieve:  hybrid vector + keyword search, relevance grading, freshness, neighbour chunk
 - rewrite:   the LLM turns the question into a better search query (only when retrieval is weak)
 - no_answer: fixed "I don't have that information" reply (or the out-of-scope reply if the
@@ -43,6 +46,7 @@ from app.rag.prompts import (CALM_MESSAGE, MISCONDUCT_MESSAGE, NO_INFO_MESSAGE, 
 from app.rag.query import contextualize, expand_abbreviations, llm_rewrite
 from app.rag.retriever import Retrieval, hybrid_search
 from app.rag.vectorstore import Hit
+from app.rag.verified import record_use, verified_index
 
 log = logging.getLogger(__name__)
 
@@ -64,6 +68,10 @@ class RAGState(TypedDict, total=False):
     answer: str
     answered: bool
     reason: str  # why a question was not answered (for the admin's unanswered list)
+    verified_hit: Hit  # official answer to give the LLM as its first source
+    context_hits: list  # exactly the hits shown to the LLM (for the fact check)
+    verified_direct: bool  # answered word for word from an official answer
+    usage: dict  # {"calls", "input_tokens", "output_tokens"} for the cost dashboard
 
 
 def _sources(hits: list[Hit]) -> list[dict]:
@@ -118,6 +126,42 @@ async def prepare(state: RAGState) -> RAGState:
     return {"grade_query": q, "search_query": expand_abbreviations(q), "attempts": 0}
 
 
+async def verified(state: RAGState) -> RAGState:
+    s = get_settings()
+    emb = await asyncio.to_thread(embed_query, state["grade_query"])
+    match = await asyncio.to_thread(verified_index.best, emb)
+    if match is None or match.score < s.verified_context_threshold:
+        return {}
+    await asyncio.to_thread(record_use, match.id)
+    if match.score >= s.verified_direct_threshold:
+        write = get_stream_writer()
+        if match.source_url:
+            write({"type": "sources", "sources": [{"title": "Official college answer", "url": match.source_url,
+                                                  "date": ""}]})
+        write({"type": "token", "text": match.answer})
+        log.info("verified answer #%d used directly (score %.3f)", match.id, match.score)
+        return {"answer": match.answer, "answered": True, "verified_direct": True, "reason": ""}
+    hit = Hit(chunk_id=f"verified:{match.id}", score=match.score,
+              text=f"Official answer from the college.\nQuestion: {match.question}\nAnswer: {match.answer}",
+              metadata={"url": match.source_url or f"site://verified/{match.id}", "title": "Official college answer"},
+              signals={"grade": match.score, "verified": True})
+    log.info("verified answer #%d given to the LLM as context (score %.3f)", match.id, match.score)
+    return {"verified_hit": hit}
+
+
+def after_verified(state: RAGState) -> str:
+    return END if state.get("verified_direct") else "retrieve"
+
+
+def _add_usage(state: RAGState) -> dict:
+    u = dict(state.get("usage") or {"calls": 0, "input_tokens": 0, "output_tokens": 0})
+    last = get_llm().last_usage
+    u["calls"] += 1
+    u["input_tokens"] += last.input_tokens
+    u["output_tokens"] += last.output_tokens
+    return u
+
+
 async def retrieve(state: RAGState) -> RAGState:
     emb = await asyncio.to_thread(embed_query, state["search_query"])
     r = await asyncio.to_thread(hybrid_search, state["search_query"], emb, None, state["grade_query"])
@@ -127,7 +171,7 @@ async def retrieve(state: RAGState) -> RAGState:
 
 
 def after_retrieve(state: RAGState) -> str:
-    if state["retrieval"].relevant and state["retrieval"].hits:
+    if (state["retrieval"].relevant and state["retrieval"].hits) or state.get("verified_hit"):
         return "generate"
     if state["attempts"] < 2 and get_settings().rag_query_rewrite:
         return "rewrite"
@@ -139,11 +183,12 @@ async def rewrite(state: RAGState) -> RAGState:
     try:
         async with llm_slot:
             new_q = await llm_rewrite(get_llm(), state["grade_query"])
+            usage = _add_usage(state)
     except LLMError as e:
         log.warning("Query rewrite failed: %s", e)
-        new_q = state["grade_query"]
+        new_q, usage = state["grade_query"], state.get("usage")
     log.info("rewrite: %r -> %r", state["grade_query"], new_q)
-    return {"search_query": expand_abbreviations(new_q)}
+    return {"search_query": expand_abbreviations(new_q), "usage": usage}
 
 
 async def no_answer(state: RAGState) -> RAGState:
@@ -154,7 +199,9 @@ async def no_answer(state: RAGState) -> RAGState:
 
 async def generate(state: RAGState) -> RAGState:
     write = get_stream_writer()
-    hits = state["retrieval"].hits
+    hits = list(state["retrieval"].hits)
+    if state.get("verified_hit"):
+        hits = [state["verified_hit"]] + hits[: max(0, len(hits) - 1)]
     write({"type": "sources", "sources": _sources(hits)})
     s = get_settings()
     history = state.get("history", [])[-2 * s.chat_history_turns:]
@@ -165,11 +212,12 @@ async def generate(state: RAGState) -> RAGState:
             async for delta in get_llm().stream(build_system_prompt(s.app_name), messages):
                 parts.append(delta)
                 write({"type": "token", "text": delta})
+            usage = _add_usage(state)
     except LLMError as e:
         log.warning("LLM failure: %s", e)
         write({"type": "error", "text": BUSY_MESSAGE})
         return {"answer": "", "answered": False, "reason": f"llm error: {e}"}
-    return {"answer": "".join(parts).strip(), "answered": True}
+    return {"answer": "".join(parts).strip(), "answered": True, "context_hits": hits, "usage": usage}
 
 
 async def verify(state: RAGState) -> RAGState:
@@ -181,7 +229,7 @@ async def verify(state: RAGState) -> RAGState:
     if not get_settings().fact_check_enabled:
         return {}
     # Check against exactly what the model saw: chunk text plus each source's title, URL, date and year.
-    fc = check_answer(answer, format_context(state["retrieval"].hits), state["question"])
+    fc = check_answer(answer, format_context(state.get("context_hits") or state["retrieval"].hits), state["question"])
     if fc.ok:
         return {}
     log.warning("Fact check failed, unsupported: %s", fc.unsupported)
@@ -204,6 +252,7 @@ def build_graph():
     g.add_node("calm", calm)
     g.add_node("small_talk", small_talk)
     g.add_node("prepare", prepare)
+    g.add_node("verified", verified)
     g.add_node("retrieve", retrieve)
     g.add_node("rewrite", rewrite)
     g.add_node("no_answer", no_answer)
@@ -213,7 +262,8 @@ def build_graph():
     g.add_conditional_edges("guard", after_guard, ["prepare", "refuse", "out_of_scope", "calm", "small_talk"])
     for node in ("refuse", "out_of_scope", "calm", "small_talk"):
         g.add_edge(node, END)
-    g.add_edge("prepare", "retrieve")
+    g.add_edge("prepare", "verified")
+    g.add_conditional_edges("verified", after_verified, ["retrieve", END])
     g.add_conditional_edges("retrieve", after_retrieve, ["generate", "rewrite", "no_answer"])
     g.add_edge("rewrite", "retrieve")
     g.add_edge("no_answer", END)

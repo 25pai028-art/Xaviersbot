@@ -18,7 +18,7 @@ from sse_starlette.sse import EventSourceResponse
 
 from app.config import get_settings
 from app.llm.base import ChatMessage
-from app.rag.service import answer_stream
+from app.rag.service import answer_stream, record_feedback
 
 router = APIRouter(prefix="/api", tags=["chat"])
 
@@ -42,6 +42,18 @@ class ChatRequest(BaseModel):
         if len(v) > get_settings().max_message_chars:
             raise ValueError(f"Message is too long (max {get_settings().max_message_chars} characters)")
         return v
+
+
+class FeedbackRequest(BaseModel):
+    rating: Literal["up", "down"]
+    question: str = Field(default="", max_length=1000)
+    sources: list[str] = Field(default_factory=list, max_length=10)
+
+
+@router.post("/feedback", status_code=204)
+async def feedback(req: FeedbackRequest) -> None:
+    """Thumbs up/down on an answer. Only the question text and source links of a thumbs-down are kept."""
+    record_feedback(req.rating, req.question.strip(), [u[:500] for u in req.sources])
 
 
 @router.post("/chat")

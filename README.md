@@ -104,6 +104,35 @@ uvicorn app.main:app --reload
 - **http://localhost:8000/health**: the active LLM, whether it is reachable, and the number of indexed chunks.
 - **http://localhost:8000/api/docs**: the API docs.
 
+## Admin panel
+
+1. Create the first admin (super admin). It asks for a password, which must be 10+ characters with letters and numbers:
+   ```powershell
+   python -m scripts.create_admin --username admin
+   ```
+2. Start the server with `uvicorn app.main:app` and open **http://localhost:8000/admin**.
+
+| Page | What it is for |
+|---|---|
+| Dashboard | Indexed pages, documents and chunks; questions asked; unanswered rate; thumbs up/down; active AI model; AI cost when a paid model is used; last and next crawl |
+| Sources | Search everything the chatbot knows and read the extracted text. **Remove and block** takes a page out and keeps future crawls from adding it back; uploads can be deleted |
+| Upload | Add PDF, DOCX, TXT, PNG or JPG files. They are checked for the real file type, stored outside the web folder, and indexed within a minute |
+| Crawl | **Re-crawl now** with live progress and a stop button, or add or refresh a single college page. Also shows recent runs and errors. An automatic re-crawl runs every Sunday at 02:00 (`CRAWL_SCHEDULE_*`) |
+| Official answers | The college's own Q&A, used **before** the website. A close match is answered word for word; a partial match becomes the AI's main source. Use the test box to check how a question matches |
+| Unanswered / Feedback | Questions the bot couldn't answer, and thumbs-down answers. Only the question text is kept, and entries are deleted after 30 days (`RETENTION_DAYS`) |
+| Users | Super admin only. Add editors, reset passwords, deactivate accounts |
+| Account | Change your password; turn on two-step login with an authenticator app |
+| Audit log | Who uploaded, deleted, edited or crawled what, and when |
+
+**Security:**
+- Passwords are hashed with Argon2.
+- An account is locked for 15 minutes after 5 wrong passwords, and there is a limit per network.
+- Session cookies are HttpOnly and SameSite=Strict; sessions end after 30 minutes of inactivity or 8 hours in total.
+- Every form needs a CSRF token.
+- Admin pages send strict security headers (no framing, no inline scripts).
+
+Run the server with a single worker, because the scheduler runs inside it.
+
 ## Switching the LLM
 
 Edit `.env` and restart. No re-indexing is needed.

@@ -1,0 +1,62 @@
+{% extends "base.html" %}
+{% block title %}Crawl{% endblock %}
+{% block content %}
+<h1>Website crawl</h1>
+
+<div class="card">
+  <div class="row">
+    <div>
+      <strong>Re-crawl the college website</strong>
+      <div class="muted">Checks every page and document; only new or changed content is re-indexed. Automatic crawl: {{ next_crawl | dt if next_crawl else "off" }}.</div>
+    </div>
+    <span class="spacer"></span>
+    <form method="post" action="/admin/crawl/start" class="inline" data-when-idle {% if status.running %}hidden{% endif %}>
+      <input type="hidden" name="csrf_token" value="{{ admin.csrf_token }}"><button type="submit">Re-crawl now</button></form>
+    <form method="post" action="/admin/crawl/stop" class="inline" data-when-running {% if not status.running %}hidden{% endif %}
+          data-confirm="Stop the crawl? Everything processed so far is kept.">
+      <input type="hidden" name="csrf_token" value="{{ admin.csrf_token }}"><button type="submit" class="danger">Stop</button></form>
+  </div>
+
+  <div id="crawl-status" data-running="{{ 'true' if status.running else 'false' }}" {% if not status.kind %}hidden{% endif %} class="mt">
+    <div class="progress" aria-hidden="true"><div></div></div>
+    <table class="mt">
+      <tr><th>Status</th><td><span data-field="phase">{{ status.phase }}</span>{% if status.kind == "url" %} · {{ status.target }}{% endif %} · started by {{ status.started_by }}</td></tr>
+      <tr><th>Fetched</th><td><span data-field="processed">{{ status.processed }}</span> · <span data-field="queued">{{ status.queued }}</span> queued · <span data-field="discovered">{{ status.discovered }}</span> discovered</td></tr>
+      <tr><th>Changes</th><td data-field="changes"></td></tr>
+      <tr><th>Indexing</th><td data-field="index"></td></tr>
+      <tr><th>Errors</th><td data-field="errors">{{ status.errors }}</td></tr>
+      <tr><th>Now</th><td><span class="url" data-field="current"></span></td></tr>
+    </table>
+    {% if status.error %}<div class="flash err">{{ status.error }}</div>{% endif %}
+    {% for n in status.notes or [] %}<div class="muted">Note: {{ n }}</div>{% endfor %}
+  </div>
+</div>
+
+<div class="card">
+  <strong>Add or refresh one page</strong>
+  <form method="post" action="/admin/crawl/url" class="row mt">
+    <input type="hidden" name="csrf_token" value="{{ admin.csrf_token }}">
+    <input type="url" name="url" placeholder="https://sxca.edu.in/…" required class="grow" aria-label="Page address">
+    <button type="submit">Fetch and index</button>
+  </form>
+  <p class="muted">Only these domains are allowed: {{ settings.crawl_allowed_domains | join(", ") }}.</p>
+</div>
+
+<h2>Recent crawls</h2>
+<div class="table-wrap"><table>
+  <tr><th>Started</th><th>By</th><th>Status</th><th class="num">Fetched</th><th class="num">New</th><th class="num">Updated</th><th class="num">Chunks</th><th class="num">Errors</th></tr>
+  {% for r in runs %}
+  <tr><td>{{ r.started_at | dt }}</td><td>{{ r.trigger }}</td>
+    <td><span class="badge {{ 'ok' if r.status == 'completed' else 'warn' if r.status in ('running','stopped') else 'err' }}">{{ r.status }}</span></td>
+    <td class="num">{{ r.stats.processed or 0 }}</td><td class="num">{{ r.stats.new or 0 }}</td><td class="num">{{ r.stats.updated or 0 }}</td>
+    <td class="num">{{ r.stats.chunks_written or 0 }}</td><td class="num">{{ r.stats.errors or 0 }}</td></tr>
+  {% else %}<tr><td colspan="8" class="muted">No crawls yet.</td></tr>{% endfor %}
+</table></div>
+
+<h2>Recent errors <span class="muted">(broken links, timeouts; they do not stop the crawl)</span></h2>
+<div class="table-wrap"><table>
+  <tr><th>When</th><th>Error</th><th>Address</th></tr>
+  {% for e in errors %}<tr><td>{{ e.at | dt }}</td><td>{{ e.error[:120] }}</td><td class="url">{{ e.url }}</td></tr>
+  {% else %}<tr><td colspan="3" class="muted">No errors.</td></tr>{% endfor %}
+</table></div>
+{% endblock %}

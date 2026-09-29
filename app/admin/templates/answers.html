@@ -1,0 +1,30 @@
+{% extends "base.html" %}
+{% block title %}Official answers{% endblock %}
+{% block content %}
+<div class="row"><h1>Official answers</h1><span class="spacer"></span><a class="button" href="/admin/answers/new">Add an answer</a></div>
+<p class="muted">The chatbot checks these first. When a student's question closely matches one, the chatbot gives your answer word for word. When it partly matches, your answer is used as the most important source. Use this for anything the website does not say (office hours, procedures) or says unclearly.</p>
+
+<form class="card row" method="get" action="/admin/answers">
+  <input type="search" name="test" value="{{ test }}" placeholder="Try a student question to see which answer it matches" class="grow" aria-label="Test question">
+  <button type="submit" class="secondary">Test</button>
+</form>
+{% if test %}
+<div class="card">
+  {% if match %}Closest: <a href="/admin/answers/{{ match.id }}">{{ match.question }}</a> · similarity {{ "%.2f" | format(match.score) }} · <strong>{{ match.mode }}</strong>
+  {% else %}No official answers yet.{% endif %}
+</div>
+{% endif %}
+
+<div class="table-wrap"><table>
+  <tr><th>Question</th><th>Answer</th><th class="num">Used</th><th>Updated</th></tr>
+  {% for r in rows %}
+  <tr>
+    <td><a href="/admin/answers/{{ r.id }}">{{ r.question }}</a>{% if r.alts %}<div class="url">+{{ r.alts }} other phrasings</div>{% endif %}
+      {% if not r.active %} <span class="badge warn">off</span>{% endif %}</td>
+    <td>{{ r.answer[:160] }}{% if r.answer | length > 160 %}…{% endif %}</td>
+    <td class="num">{{ r.used }}</td>
+    <td>{{ r.updated | d }}<div class="url">{{ r.by }}</div></td>
+  </tr>
+  {% else %}<tr><td colspan="4" class="muted">No official answers yet. Start from the <a href="/admin/unanswered">unanswered questions</a>.</td></tr>{% endfor %}
+</table></div>
+{% endblock %}

@@ -1,0 +1,44 @@
+{% extends "base.html" %}
+{% block title %}Sources{% endblock %}
+{% block content %}
+<div class="row"><h1>Sources <span class="muted">({{ total }})</span></h1><span class="spacer"></span><a class="button" href="/admin/upload">Upload a document</a></div>
+
+<form class="filters" method="get" action="/admin/sources">
+  <input type="search" name="q" value="{{ q }}" placeholder="Search title, address or section" aria-label="Search">
+  <select name="kind" aria-label="Type">
+    <option value="">All types</option>
+    {% for v, label in [("html","Web pages"),("pdf","PDF"),("docx","DOCX"),("image","Images"),("txt","Text"),("upload","Admin uploads")] %}
+    <option value="{{ v }}" {% if kind == v %}selected{% endif %}>{{ label }}</option>{% endfor %}
+  </select>
+  <select name="status" aria-label="Status">
+    <option value="">Any status</option>
+    {% for v, label in [("indexed","Indexed"),("pending","Waiting"),("processing","Processing"),("empty","No text"),("duplicate","Duplicate"),("blocked","Blocked"),("error","Error")] %}
+    <option value="{{ v }}" {% if status == v %}selected{% endif %}>{{ label }}</option>{% endfor %}
+  </select>
+  <button type="submit">Filter</button>
+</form>
+
+<div class="table-wrap"><table>
+  <tr><th>Title</th><th>Type</th><th>Status</th><th class="num">Chunks</th><th>Date</th></tr>
+  {% for s in items %}
+  <tr>
+    <td><a href="/admin/sources/{{ s.id }}">{{ s.title or "(no title)" }}</a>
+      {% if s.section %}<div class="url">{{ s.section }}</div>{% endif %}
+      <div class="url">{{ s.url }}</div></td>
+    <td>{{ s.type }}{% if s.source_type == "upload" %} <span class="badge">upload</span>{% endif %}{% if s.ocr %} <span class="badge">OCR</span>{% endif %}</td>
+    <td><span class="badge {{ 'ok' if s.status == 'indexed' else 'err' if s.status in ('error','blocked') else 'warn' if s.status in ('pending','processing') else '' }}">{{ s.status }}</span></td>
+    <td class="num">{{ s.chunks }}</td>
+    <td>{{ s.date | d }}{% if s.year %}<div class="url">AY {{ s.year }}</div>{% endif %}</td>
+  </tr>
+  {% else %}
+  <tr><td colspan="5" class="muted">Nothing found.</td></tr>
+  {% endfor %}
+</table></div>
+{% if pages > 1 %}
+<div class="pager">
+  {% if page > 1 %}<a class="button secondary" href="?q={{ q | urlencode }}&kind={{ kind }}&status={{ status }}&page={{ page - 1 }}">Previous</a>{% endif %}
+  <span class="muted">Page {{ page }} of {{ pages }}</span>
+  {% if page < pages %}<a class="button secondary" href="?q={{ q | urlencode }}&kind={{ kind }}&status={{ status }}&page={{ page + 1 }}">Next</a>{% endif %}
+</div>
+{% endif %}
+{% endblock %}

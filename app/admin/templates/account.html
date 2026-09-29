@@ -1,0 +1,42 @@
+{% extends "base.html" %}
+{% block title %}Your account{% endblock %}
+{% block content %}
+<h1>Your account: {{ admin.username }}</h1>
+
+<div class="card">
+  <h2 class="mt0">Change password</h2>
+  <form method="post" action="/admin/account/password">
+    <input type="hidden" name="csrf_token" value="{{ admin.csrf_token }}">
+    <label for="cur">Current password</label><input id="cur" name="current" type="password" required autocomplete="current-password">
+    <label for="new">New password <span class="hint">(at least 10 characters, mix letters with numbers or symbols)</span></label>
+    <input id="new" name="new" type="password" required minlength="10" autocomplete="new-password">
+    <p><button type="submit">Change password</button></p>
+  </form>
+</div>
+
+<div class="card">
+  <h2 class="mt0">Two-step login</h2>
+  {% if admin.has_2fa %}
+    <p><span class="badge ok">on</span> You need a code from your authenticator app at every sign-in.</p>
+    <form method="post" action="/admin/account/2fa/disable" data-confirm="Turn off two-step login?">
+      <input type="hidden" name="csrf_token" value="{{ admin.csrf_token }}">
+      <label for="pw2">Your password</label><input id="pw2" name="password" type="password" required autocomplete="current-password">
+      <p><button type="submit" class="danger">Turn off</button></p>
+    </form>
+  {% else %}
+    <p><span class="badge warn">off</span> Recommended for admins: even if someone learns your password, they can't sign in without your phone.</p>
+    <ol>
+      <li>Install an authenticator app (Google Authenticator, Microsoft Authenticator, Authy).</li>
+      <li>Scan this QR code, or type the key <code>{{ secret }}</code>.</li>
+      <li>Enter the 6-digit code the app shows.</li>
+    </ol>
+    <img class="qr" src="{{ qr }}" alt="QR code for your authenticator app">
+    <form method="post" action="/admin/account/2fa/enable">
+      <input type="hidden" name="csrf_token" value="{{ admin.csrf_token }}">
+      <input type="hidden" name="secret" value="{{ secret }}">
+      <label for="code">6-digit code</label><input id="code" name="code" inputmode="numeric" autocomplete="one-time-code" required>
+      <p><button type="submit">Turn on</button></p>
+    </form>
+  {% endif %}
+</div>
+{% endblock %}

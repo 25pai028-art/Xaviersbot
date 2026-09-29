@@ -1,0 +1,31 @@
+{% extends "base.html" %}
+{% block title %}Users{% endblock %}
+{% block content %}
+<h1>Admin users</h1>
+<p class="muted"><strong>Super admin:</strong> everything, including users. <strong>Editor:</strong> uploads, sources, crawls, official answers and feedback.</p>
+<div class="table-wrap"><table>
+  <tr><th>User</th><th>Role</th><th>Status</th><th>Two-step login</th><th>Last sign-in</th><th>Reset password</th></tr>
+  {% for u in rows %}
+  <tr><td>{{ u.username }}{% if u.id == admin.user_id %} <span class="muted">(you)</span>{% endif %}</td>
+    <td>{{ "Super admin" if u.role == "super" else "Editor" }}</td>
+    <td>{% if u.active %}<span class="badge ok">active</span>{% else %}<span class="badge err">deactivated</span>{% endif %}
+      {% if u.id != admin.user_id %}<form method="post" action="/admin/users/{{ u.id }}/toggle" class="inline"><input type="hidden" name="csrf_token" value="{{ admin.csrf_token }}"><button type="submit" class="link">{{ "Deactivate" if u.active else "Activate" }}</button></form>{% endif %}</td>
+    <td>{{ "on" if u.twofa else "off" }}</td>
+    <td>{{ u.last_login | dt }}</td>
+    <td><form method="post" action="/admin/users/{{ u.id }}/password" class="row">
+      <input type="hidden" name="csrf_token" value="{{ admin.csrf_token }}">
+      <input type="password" name="password" placeholder="New password" autocomplete="new-password" required minlength="10" aria-label="New password for {{ u.username }}">
+      <button type="submit" class="secondary">Set</button></form></td></tr>
+  {% endfor %}
+</table></div>
+
+<h2>Add a user</h2>
+<form class="card" method="post" action="/admin/users/add">
+  <input type="hidden" name="csrf_token" value="{{ admin.csrf_token }}">
+  <label for="nu">Username</label><input id="nu" name="username" required pattern="[A-Za-z0-9._\-]{3,64}" autocomplete="off">
+  <label for="nr">Role</label><select id="nr" name="role"><option value="editor">Editor</option><option value="super">Super admin</option></select>
+  <label for="np">Password <span class="hint">(at least 10 characters, letters and numbers; ask them to change it after signing in)</span></label>
+  <input id="np" name="password" type="password" required minlength="10" autocomplete="new-password">
+  <p><button type="submit">Add user</button></p>
+</form>
+{% endblock %}

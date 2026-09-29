@@ -265,6 +265,9 @@ class Crawler:
             existing = db.scalar(select(Source).where(Source.url == url))
             existing_info = None
             if existing:
+                if existing.status == "blocked":  # an admin removed it: never fetch or index it again
+                    self.stats.skipped += 1
+                    return
                 existing_info = (existing.id, existing.remote_modified, existing.etag, existing.last_modified_header)
 
         conditional = existing_info and kind != "html" and not self.reindex
@@ -500,6 +503,7 @@ class Crawler:
         with session_scope() as db:
             stale = db.scalars(
                 select(Source).where(Source.source_type == "website", ~Source.url.startswith("site://"),
+                                     Source.status != "blocked",
                                      (Source.last_seen_run_id != self.run_id) | (Source.last_seen_run_id.is_(None)))
             ).all()
             stale_info = [(s.id, s.url) for s in stale]

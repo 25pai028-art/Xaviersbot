@@ -1,0 +1,16 @@
+{% extends "base.html" %}
+{% block title %}Upload{% endblock %}
+{% block content %}
+<h1>Upload a document</h1>
+<div class="card">
+  <p class="muted">Add notices, circulars, fee structures or any official document. The chatbot can answer from it within a minute. Allowed: PDF, DOCX, TXT, PNG, JPG · up to {{ "%.0f" | format(settings.upload_max_mb) }} MB. Scanned PDFs and images are read with OCR when Tesseract is installed on the server.</p>
+  <form method="post" action="/admin/upload" enctype="multipart/form-data">
+    <input type="hidden" name="csrf_token" value="{{ admin.csrf_token }}">
+    <label for="file">File</label>
+    <input id="file" name="file" type="file" accept=".pdf,.docx,.txt,.png,.jpg,.jpeg" required>
+    <label for="title">Title <span class="hint">(optional; shown to students as the source name, e.g. “Fee structure 2026-27”)</span></label>
+    <input id="title" name="title" maxlength="300">
+    <p><button type="submit">Upload and index</button></p>
+  </form>
+</div>
+{% endblock %}

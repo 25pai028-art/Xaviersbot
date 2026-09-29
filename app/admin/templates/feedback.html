@@ -1,0 +1,16 @@
+{% extends "base.html" %}
+{% block title %}Feedback{% endblock %}
+{% block content %}
+<h1>Thumbs-down answers <span class="muted">({{ rows | length }})</span></h1>
+<p class="muted">Questions where a student marked the answer as not helpful, with the pages the chatbot used. Check those pages; if they are wrong or outdated, fix the website, upload a correct document, or add an official answer. Deleted automatically after {{ settings.retention_days }} days.</p>
+<div class="table-wrap"><table>
+  <tr><th>Question</th><th>Sources used</th><th>When</th><th></th></tr>
+  {% for r in rows %}
+  <tr><td>{{ r.question }}</td>
+    <td>{% for u in r.sources %}<div class="url"><a href="{{ u }}" target="_blank" rel="noopener noreferrer">{{ u }}</a></div>{% else %}<span class="muted">none</span>{% endfor %}</td>
+    <td>{{ r.at | dt }}</td>
+    <td class="row"><a class="button secondary" href="/admin/answers/new?question={{ r.question | urlencode }}">Write answer</a>
+      <form method="post" action="/admin/feedback/{{ r.id }}/delete" class="inline"><input type="hidden" name="csrf_token" value="{{ admin.csrf_token }}"><button type="submit" class="link">Dismiss</button></form></td></tr>
+  {% else %}<tr><td colspan="4" class="muted">No negative feedback.</td></tr>{% endfor %}
+</table></div>
+{% endblock %}
