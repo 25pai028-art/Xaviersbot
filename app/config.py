@@ -119,8 +119,7 @@ class Settings(BaseSettings):
     max_message_chars: int = 1000
 
     # --- Languages ---
-    translation_provider: str = "auto"  # auto | indictrans2 | llm | off
-    translation_beams: int = 1  # 1 = fastest on CPU; 4 = slightly better wording, ~3x slower
+    translation_provider: str = "auto"  # auto (LLM, IndicTrans2 as backup) | llm | indictrans2 | off
 
     # --- Chat widget (colours are CSS variables, see README) ---
     widget_welcome: str = ""  # empty = the standard greeting

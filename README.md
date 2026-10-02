@@ -136,7 +136,9 @@ Students can type in English, Hindi, Gujarati, Malayalam, Tamil, Telugu, Kannada
 - **Speed:** a translated answer appears all at once after translation, not word by word.
 - **Voice:** the mic and read-aloud buttons use the browser's own Indian-language voices. Chrome and Android phones have most of them; Windows has fewer. If a voice is missing, the button says so.
 
-**Translation models (recommended).** The AI4Bharat IndicTrans2 models run locally for free, give much better wording than the chat LLM, and are faster. They are "gated", so download them once:
+**Who translates.** The chat LLM translates first, because it keeps people's names, course codes and dates exactly as written. With Gemini or Claude the wording is natural; with the small local model it is understandable but clumsy. If the LLM's translation fails a check (wrong language, a missing number, or it answered instead of translating), the AI4Bharat **IndicTrans2** models try next. They run locally, and fast, but in tests the small "distilled" versions jumbled people's names, so they are only the backup.
+
+**Backup translation models (optional).** The IndicTrans2 models are "gated", so download them once:
 
 1. Create a free account at https://huggingface.co.
 2. Open both pages and click **Agree and access repository**:
@@ -145,7 +147,7 @@ Students can type in English, Hindi, Gujarati, Malayalam, Tamil, Telugu, Kannada
 3. Create a **Read** token at https://huggingface.co/settings/tokens.
 4. Run `.venv\Scripts\hf auth login`, paste the token, then run `python -m scripts.download_translation`.
 
-Without these models, `TRANSLATION_PROVIDER=auto` uses the chat LLM to translate. That works, but the wording is weaker with the small local model.
+Without these models, only the chat LLM translates. The IndicTrans2 model code is included in `app/i18n/indictrans2`, adapted for transformers 5 (MIT licence, AI4Bharat). Only the weights are downloaded.
 
 ## Admin panel
 

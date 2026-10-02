@@ -28,8 +28,9 @@ torch
 sentence-transformers>=3.0
 transformers>=4.44
 
-# --- Translation (IndicTrans2; only its text processor is used from the toolkit) ---
-IndicTransToolkit>=1.1
+# --- Translation backup (IndicTrans2 model code is in app/i18n/indictrans2) ---
+indic-nlp-library-itt
+sacremoses
 sentencepiece
 
 # --- LLM providers (all optional at runtime; only the active one is imported) ---

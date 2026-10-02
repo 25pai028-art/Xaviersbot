@@ -48,6 +48,46 @@ def test_translation_must_keep_numbers_emails_and_links():
     assert "admissions@sxca.edu.in" in check_translation(src, good.replace("admissions@sxca.edu.in", "admission@sxca.edu.in"))
 
 
+def test_numbers_cut_short_by_the_model_are_put_back():
+    from app.i18n.translate import repair_numbers
+
+    src = "The last date to pay the semester fees is 25 June 2026."
+    assert repair_numbers(src, "202 ജൂൺ 25 വരെ ഫീസ് അടയ്ക്കണം.") == "2026 ജൂൺ 25 വരെ ഫീസ് അടയ്ക്കണം."
+    # A wrong number that isn't a cut-off version stays wrong (and check_translation rejects it)
+    assert "2019" in repair_numbers(src, "2019 ജൂൺ 25")
+
+
+async def test_translator_chain_falls_back_and_checks(monkeypatch):
+    from app.i18n import translate as tr
+
+    monkeypatch.setattr(tr, "providers", lambda: ["llm", "indictrans2"])
+    tr._cache.clear()
+    src = "The BCA fee is Rs. 62,500."
+
+    async def run(p, text, s, t):
+        # The LLM "translates" by echoing English; the backup gets it right
+        return text if p == "llm" else "ബിസിഎ ഫീസ് 62,500 രൂപ."
+
+    monkeypatch.setattr(tr, "_run", run)
+    assert await tr.translate(src, "en", "ml") == "ബിസിഎ ഫീസ് 62,500 രൂപ."
+
+    async def changes_number(p, text, s, t):
+        return "ബിസിഎ ഫീസ് 26,500 രൂപ."
+
+    tr._cache.clear()
+    monkeypatch.setattr(tr, "_run", changes_number)
+    with pytest.raises(TranslationError):
+        await tr.translate(src, "en", "ml")
+
+    async def answers_instead(p, text, s, t):
+        return "The fee for BCA is Rs. 62,500 per year, payable in two instalments. " * 5
+
+    tr._cache.clear()
+    monkeypatch.setattr(tr, "_run", answers_instead)
+    with pytest.raises(TranslationError):
+        await tr.translate("ബിസിഎ ഫീസ് എത്ര?", "ml", "en")
+
+
 def test_markdown_lines_and_bullets_survive_translation():
     text = "Fees:\n- **BCA**: Rs. 62,500. Paid yearly.\n\n1. Apply online"
     lines = _split(text)
