@@ -5,7 +5,11 @@ the server stores nothing (privacy decision).
 
 SSE events: `status` → {text} (e.g. "searching more…"), `sources` → {sources:[{title,url,date}]},
 `token` → {text}, `replace` → {text} (fact check failed: replace the whole answer),
-`done` → {answered}, `error` → {message}.
+`done` → {answered}, `error` → {message}, `language` → {language} (the answer's language, when not
+English; the answer then arrives as one `token` after translation).
+
+`language` in the request is a code from `app.i18n.languages` (en, hi, gu, ml, ta, …) or "auto";
+a question typed in an Indian script is answered in that language either way.
 """
 from __future__ import annotations
 
@@ -17,6 +21,7 @@ from pydantic import BaseModel, Field, field_validator
 from sse_starlette.sse import EventSourceResponse
 
 from app.config import get_settings
+from app.i18n.languages import LANGUAGES
 from app.llm.base import ChatMessage
 from app.rag.service import answer_stream, record_feedback
 
@@ -43,6 +48,12 @@ class ChatRequest(BaseModel):
             raise ValueError(f"Message is too long (max {get_settings().max_message_chars} characters)")
         return v
 
+    @field_validator("language")
+    @classmethod
+    def _language(cls, v: str) -> str:
+        v = (v or "auto").strip().lower()
+        return v if v in LANGUAGES else "auto"
+
 
 class FeedbackRequest(BaseModel):
     rating: Literal["up", "down"]
@@ -61,9 +72,11 @@ async def chat(req: ChatRequest):
     history = [ChatMessage(role=h.role, content=h.content) for h in req.history]
 
     async def events():
-        async for ev in answer_stream(req.message, history):
+        async for ev in answer_stream(req.message, history, req.language):
             if ev.type == "sources":
                 data = {"sources": ev.sources}
+            elif ev.type == "language":
+                data = {"language": ev.text}
             elif ev.type in ("token", "replace", "status"):
                 data = {"text": ev.text}
             elif ev.type == "done":

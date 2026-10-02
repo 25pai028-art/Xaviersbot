@@ -1,0 +1,132 @@
+"""Multilingual answers: detection, protected facts in translation, and the translate–answer–translate flow."""
+import pytest
+
+from app.i18n.languages import answer_language, detect_language
+from app.i18n.translate import TranslationError, _join, _split, check_translation
+from app.rag import service
+
+
+@pytest.mark.parametrize("text, code", [
+    ("ബിസിഎ കോഴ്സിന്റെ ഫീസ് എത്രയാണ്?", "ml"),
+    ("कॉलेज के प्रिंसिपल कौन हैं?", "hi"),
+    ("હોસ્ટેલ સુવિધા છે?", "gu"),
+    ("தேர்வு எப்போது?", "ta"),
+    ("పరీక్షలు ఎప్పుడు?", "te"),
+    ("ಪರೀಕ್ಷೆ ಯಾವಾಗ?", "kn"),
+    ("ফি কত?", "bn"),
+    ("ਫੀਸ ਕਿੰਨੀ ਹੈ?", "pa"),
+    ("ଫି କେତେ?", "or"),
+    ("فیس کتنی ہے؟", "ur"),
+    ("What is the BCA fee?", "en"),
+    ("fees kitni hai BCA ki", "en"),  # romanised Hindi: the answering model reads it as is
+    ("BCA ફી કેટલી છે?", "gu"),  # mixed with an English course code
+    ("2026", "en"),
+])
+def test_language_detected_from_script(text, code):
+    assert detect_language(text) == code
+
+
+def test_devanagari_is_marathi_when_marathi_was_chosen():
+    assert detect_language("परीक्षा कधी आहे?", preferred="mr") == "mr"
+    assert detect_language("परीक्षा कधी आहे?") == "hi"
+
+
+def test_answer_language_follows_what_was_typed_then_the_selector():
+    assert answer_language("en", "ഫീസ് എത്ര?") == "ml"  # typed Malayalam, selector says English
+    assert answer_language("ml", "What is the fee?") == "ml"  # quick chips are English: selector wins
+    assert answer_language("auto", "What is the fee?") == "en"
+    assert answer_language("xx", "What is the fee?") == "en"
+
+
+def test_translation_must_keep_numbers_emails_and_links():
+    src = "The BCA fee is Rs. 62,500. Pay by 25 June 2026. Email admissions@sxca.edu.in or see https://sxca.edu.in/fees/."
+    good = "ബിസിഎ ഫീസ് 62,500 രൂപയാണ്. 2026 ജൂൺ 25-നകം അടയ്ക്കുക. admissions@sxca.edu.in https://sxca.edu.in/fees/"
+    assert check_translation(src, good) == []
+    native_digits = good.replace("62,500", "६२,५००")  # Indian-script digits count as the same number
+    assert check_translation(src, native_digits) == []
+    assert "62500" in check_translation(src, good.replace("62,500", "26,500"))
+    assert "admissions@sxca.edu.in" in check_translation(src, good.replace("admissions@sxca.edu.in", "admission@sxca.edu.in"))
+
+
+def test_markdown_lines_and_bullets_survive_translation():
+    text = "Fees:\n- **BCA**: Rs. 62,500. Paid yearly.\n\n1. Apply online"
+    lines = _split(text)
+    assert lines[1][0] == "- " and lines[1][1] == ["BCA: Rs. 62,500.", "Paid yearly."]
+    upper = [(p, [s.upper() for s in sents]) for p, sents in lines]
+    assert _join(upper) == "FEES:\n- BCA: RS. 62,500. PAID YEARLY.\n\n1. APPLY ONLINE"
+    # Abbreviations and initials don't end a sentence
+    assert _split("Contact Dr. Pravida Raja A. C. at St. Xavier's. Fee is Rs. 500.")[0][1] == [
+        "Contact Dr. Pravida Raja A. C. at St. Xavier's.", "Fee is Rs. 500."]
+
+
+# ---------------------------------------------------------------- full flow (fake translator and pipeline)
+def _fake_pipeline(seen):
+    async def fake(question, history=None):
+        seen["question"], seen["history"] = question, history
+        yield service.ChatEvent(type="sources", sources=[{"title": "Fees", "url": "https://sxca.edu.in/fees/"}])
+        yield service.ChatEvent(type="token", text="The BCA fee is ")
+        yield service.ChatEvent(type="token", text="Rs. 62,500.")
+        yield service.ChatEvent(type="done", answered=True)
+    return fake
+
+
+async def _collect(gen):
+    return [ev async for ev in gen]
+
+
+async def test_malayalam_question_is_answered_in_malayalam(monkeypatch):
+    seen, calls = {}, []
+
+    async def fake_translate(text, src, tgt):
+        calls.append((src, tgt))
+        return "What is the BCA fee?" if tgt == "en" else "ബിസിഎ ഫീസ് 62,500 രൂപയാണ്."
+
+    monkeypatch.setattr(service, "_answer_english", _fake_pipeline(seen))
+    monkeypatch.setattr(service, "translate", fake_translate)
+    events = await _collect(service.answer_stream("ബിസിഎ ഫീസ് എത്ര?", [], "en"))
+    types = [e.type for e in events]
+    assert events[0].type == "language" and events[0].text == "ml"
+    assert seen["question"] == "What is the BCA fee?"  # answered and fact-checked in English
+    assert ("ml", "en") in calls and ("en", "ml") in calls
+    tokens = [e.text for e in events if e.type == "token"]
+    assert tokens == ["ബിസിഎ ഫീസ് 62,500 രൂപയാണ്."]  # one translated answer, no English tokens leak
+    assert "sources" in types and types[-1] == "done" and events[-1].answered
+
+
+async def test_failed_translation_falls_back_to_english(monkeypatch):
+    async def broken(text, src, tgt):
+        if tgt == "en":
+            return "What is the BCA fee?"
+        raise TranslationError("changed a number")
+
+    monkeypatch.setattr(service, "_answer_english", _fake_pipeline({}))
+    monkeypatch.setattr(service, "translate", broken)
+    events = await _collect(service.answer_stream("ബിസിഎ ഫീസ് എത്ര?", [], "ml"))
+    text = "".join(e.text for e in events if e.type == "token")
+    assert text.startswith("The BCA fee is Rs. 62,500.") and "shown in English" in text
+
+
+async def test_english_question_is_streamed_unchanged(monkeypatch):
+    async def never(*a):
+        raise AssertionError("no translation for English")
+
+    monkeypatch.setattr(service, "_answer_english", _fake_pipeline({}))
+    monkeypatch.setattr(service, "translate", never)
+    events = await _collect(service.answer_stream("What is the BCA fee?", [], "auto"))
+    assert [e.text for e in events if e.type == "token"] == ["The BCA fee is ", "Rs. 62,500."]
+
+
+async def test_previous_malayalam_turn_is_translated_for_follow_ups(monkeypatch):
+    from app.llm.base import ChatMessage
+
+    seen = {}
+
+    async def fake_translate(text, src, tgt):
+        return {"ബിസിഎ ഫീസ് എത്ര?": "What is the BCA fee?", "ഹോസ്റ്റൽ?": "And the hostel?"}.get(text, "ഉത്തരം 62,500.")
+
+    monkeypatch.setattr(service, "_answer_english", _fake_pipeline(seen))
+    monkeypatch.setattr(service, "translate", fake_translate)
+    history = [ChatMessage("user", "ബിസിഎ ഫീസ് എത്ര?"), ChatMessage("assistant", "ബിസിഎ ഫീസ് 62,500 രൂപയാണ്.")]
+    await _collect(service.answer_stream("ഹോസ്റ്റൽ?", history, "ml"))
+    assert seen["question"] == "And the hostel?"
+    assert [m.content for m in seen["history"]] == ["What is the BCA fee?"]

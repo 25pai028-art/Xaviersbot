@@ -37,6 +37,10 @@ async def _warmup() -> None:
         await asyncio.to_thread(embed_query, "warm up")
         await get_llm().warmup()
         log.info("Models loaded and ready")
+        from app.i18n import translate
+
+        await asyncio.to_thread(translate.warmup)  # IndicTrans2, when its models are downloaded
+        log.info("Translation: %s", translate.provider())
     except Exception as e:  # the app still works; the first question just pays the load time
         log.warning("Warm-up skipped: %s", e)
 

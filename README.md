@@ -127,6 +127,26 @@ Add one line before `</body>` on sxca.edu.in (in WordPress, with a header/footer
 
 Other variables: `--xaviers-slate`, `--xaviers-page`, `--xaviers-surface`, `--xaviers-bubble`, `--xaviers-display-font` and `--xaviers-body-font`. The welcome text, logo, languages shown and office contact details are set in `.env` (`WIDGET_*` and `COLLEGE_OFFICE_*`).
 
+## Languages
+
+Students can type in English, Hindi, Gujarati, Malayalam, Tamil, Telugu, Kannada, Marathi, Bengali, Punjabi, Odia or Urdu, or pick a language in the chat header.
+
+- **How it works:** a question typed in an Indian script is answered in that language, and the selector switches to it. The question is translated to English, answered from the college website and fact-checked in English. The finished answer is then translated back.
+- **Safety:** after translation, every number, email and link must still be there. If one is missing, the English answer is shown instead, with a note.
+- **Speed:** a translated answer appears all at once after translation, not word by word.
+- **Voice:** the mic and read-aloud buttons use the browser's own Indian-language voices. Chrome and Android phones have most of them; Windows has fewer. If a voice is missing, the button says so.
+
+**Translation models (recommended).** The AI4Bharat IndicTrans2 models run locally for free, give much better wording than the chat LLM, and are faster. They are "gated", so download them once:
+
+1. Create a free account at https://huggingface.co.
+2. Open both pages and click **Agree and access repository**:
+   - https://huggingface.co/ai4bharat/indictrans2-en-indic-dist-200M
+   - https://huggingface.co/ai4bharat/indictrans2-indic-en-dist-200M
+3. Create a **Read** token at https://huggingface.co/settings/tokens.
+4. Run `.venv\Scripts\hf auth login`, paste the token, then run `python -m scripts.download_translation`.
+
+Without these models, `TRANSLATION_PROVIDER=auto` uses the chat LLM to translate. That works, but the wording is weaker with the small local model.
+
 ## Admin panel
 
 1. Create the first admin (super admin). It asks for a password, which must be 10+ characters with letters and numbers:

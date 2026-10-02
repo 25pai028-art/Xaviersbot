@@ -118,9 +118,15 @@ class Settings(BaseSettings):
     cors_origins: CsvList = Field(default_factory=lambda: ["https://sxca.edu.in", "http://localhost:8000"])
     max_message_chars: int = 1000
 
+    # --- Languages ---
+    translation_provider: str = "auto"  # auto | indictrans2 | llm | off
+    translation_beams: int = 1  # 1 = fastest on CPU; 4 = slightly better wording, ~3x slower
+
     # --- Chat widget (colours are CSS variables, see README) ---
     widget_welcome: str = ""  # empty = the standard greeting
-    widget_languages: CsvList = Field(default_factory=lambda: ["en"])  # shown in the language selector
+    # Shown in the language selector, in this order.
+    widget_languages: CsvList = Field(
+        default_factory=lambda: ["en", "hi", "gu", "ml", "ta", "te", "kn", "mr", "bn", "pa", "or", "ur"])
     widget_logo_url: str = ""  # empty = /static/widget/crest.png on this server
     college_office_url: str = "https://sxca.edu.in/contact-us/"
     college_office_email: str = "info@sxca.edu.in"

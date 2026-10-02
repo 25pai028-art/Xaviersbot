@@ -392,7 +392,7 @@ svg { width: 20px; height: 20px; fill: none; stroke: currentColor; stroke-width:
     if ("speechSynthesis" in window) {
       const speak = toolButton(I.speak, "Read aloud");
       speak.setAttribute("aria-pressed", "false");
-      speak.addEventListener("click", () => toggleSpeak(m.text, speak));
+      speak.addEventListener("click", () => toggleSpeak(m.text, speak, m.lang || "en"));
       tools.append(speak);
     }
     if (m.question) {
@@ -421,7 +421,7 @@ svg { width: 20px; height: 20px; fill: none; stroke: currentColor; stroke-width:
 
   function renderAll() {
     log.replaceChildren();
-    const welcome = { role: "assistant", text: cfg.welcome, local: true };
+    const welcome = { role: "assistant", text: welcomeText[lang] || cfg.welcome, local: true };
     renderMessage(welcome);
     for (const m of messages) renderMessage(m);
     scrollDown();
@@ -447,6 +447,29 @@ svg { width: 20px; height: 20px; fill: none; stroke: currentColor; stroke-width:
     for (const l of langs) { const o = document.createElement("option"); o.value = l; o.textContent = LANGUAGE_NAMES[l]; langSel.append(o); }
     if (!langs.includes(lang)) lang = langs[0] || "en";
     langSel.value = lang;
+  }
+
+  // Welcome message in the chosen language (translated by the server, cached per tab).
+  const welcomeText = {};
+  function loadWelcome() {
+    if (lang === "en" || welcomeText[lang]) return Promise.resolve();
+    const want = lang;
+    return fetch(BASE + "/api/widget/welcome?lang=" + encodeURIComponent(want))
+      .then((r) => (r.ok ? r.json() : null))
+      .then((w) => { if (w && w.language === want) welcomeText[want] = w.text; })
+      .catch(() => { /* English welcome stays */ });
+  }
+
+  function setLanguage(code, refresh) {
+    if (!LANGUAGE_NAMES[code] || code === lang) return;
+    lang = code;
+    save(LANG_KEY, lang);
+    if (![...langSel.options].some((o) => o.value === code)) {
+      const o = document.createElement("option"); o.value = code; o.textContent = LANGUAGE_NAMES[code]; langSel.append(o);
+    }
+    langSel.value = lang;
+    root.host.setAttribute("lang", code);
+    if (refresh) loadWelcome().then(() => { if (!overlay.hidden && !busy) renderAll(); });
   }
 
   function applyConfig() {
@@ -512,7 +535,7 @@ svg { width: 20px; height: 20px; fill: none; stroke: currentColor; stroke-width:
     setBusy(true);
     const history = historyForApi();
     const q = { role: "user", text: question };
-    const a = { role: "assistant", text: "", sources: [], answered: true, question, pending: true };
+    const a = { role: "assistant", text: "", sources: [], answered: true, question, pending: true, lang: "en" };
     messages.push(q, a);
     renderMessage(q);
     const { wrap, bubble } = renderMessage(a);
@@ -543,6 +566,12 @@ svg { width: 20px; height: 20px; fill: none; stroke: currentColor; stroke-width:
             else if (ev === "replace") { a.text = data.text || ""; started = true; show(); }
             else if (ev === "status" && !started) { bubble.replaceChildren(statusNode(data.text)); }
             else if (ev === "sources") { a.sources = data.sources || []; }
+            else if (ev === "language") {
+              // Answer comes in this language (e.g. the student typed in Malayalam): follow it in the selector.
+              a.lang = data.language;
+              setLanguage(data.language, false);
+              loadWelcome();
+            }
             else if (ev === "done") { a.answered = !!data.answered; }
             else if (ev === "error") { fail(data.message || "Something went wrong. Please try again."); }
           });
@@ -586,18 +615,38 @@ svg { width: 20px; height: 20px; fill: none; stroke: currentColor; stroke-width:
     setTimeout(() => { btn.title = old; btn.setAttribute("aria-label", old); if (btn.lastChild.nodeType === 3) btn.lastChild.remove(); }, 1500);
   }
 
-  // ------------------------------------------------------------------ voice (browser speech; server voice arrives in Phase 5)
+  // ------------------------------------------------------------------ voice (the browser's own speech engines)
+  // Which Indian-language voices exist depends on the device: Chrome and Android phones have most of them,
+  // Windows/Edge fewer. Without a matching voice we say so instead of mispronouncing with an English voice.
   let speakingBtn = null;
   function stopSpeaking() {
     if ("speechSynthesis" in window) speechSynthesis.cancel();
     if (speakingBtn) speakingBtn.setAttribute("aria-pressed", "false");
     speakingBtn = null;
   }
-  function toggleSpeak(text, btn) {
+  function voiceFor(code) {
+    const locale = (SPEECH_LOCALE[code] || "en-IN").toLowerCase();
+    const voices = speechSynthesis.getVoices();
+    const base = locale.split("-")[0];
+    return voices.find((v) => v.lang.toLowerCase().replace("_", "-") === locale)
+      || voices.find((v) => v.lang.toLowerCase().startsWith(base + "-") || v.lang.toLowerCase() === base)
+      || null;
+  }
+  if ("speechSynthesis" in window) speechSynthesis.getVoices(); // starts loading the voice list
+  function toggleSpeak(text, btn, code) {
     if (speakingBtn === btn) return stopSpeaking();
     stopSpeaking();
-    const u = new SpeechSynthesisUtterance(text.replace(/[*#`_]/g, "").replace(/https?:\/\/\S+/g, "link"));
-    u.lang = SPEECH_LOCALE[lang] || "en-IN";
+    const voice = voiceFor(code);
+    if (!voice && code !== "en") {
+      const label = (LANGUAGE_NAMES[code] || code) + " voice not available on this device";
+      btn.title = label;
+      btn.append(" " + label);
+      setTimeout(() => { btn.title = "Read aloud"; if (btn.lastChild.nodeType === 3) btn.lastChild.remove(); }, 2500);
+      return;
+    }
+    const u = new SpeechSynthesisUtterance(text.replace(/[*#`_]/g, "").replace(/https?:\/\/\S+/g, ""));
+    u.lang = SPEECH_LOCALE[code] || "en-IN";
+    if (voice) u.voice = voice;
     u.onend = u.onerror = () => { if (speakingBtn === btn) stopSpeaking(); };
     speakingBtn = btn; btn.setAttribute("aria-pressed", "true");
     speechSynthesis.speak(u);
@@ -696,7 +745,7 @@ svg { width: 20px; height: 20px; fill: none; stroke: currentColor; stroke-width:
   launcher.addEventListener("click", open);
   $(".close").addEventListener("click", close);
   $(".new-chat").addEventListener("click", newChat);
-  langSel.addEventListener("change", () => { lang = langSel.value; save(LANG_KEY, lang); });
+  langSel.addEventListener("change", () => setLanguage(langSel.value, true));
   input.addEventListener("input", autosize);
   input.addEventListener("keydown", (e) => {
     if (e.key === "Enter" && !e.shiftKey && !e.isComposing) { e.preventDefault(); form.requestSubmit(); }
@@ -732,6 +781,7 @@ svg { width: 20px; height: 20px; fill: none; stroke: currentColor; stroke-width:
         if (c.logo_url && c.logo_url.startsWith("/")) c.logo_url = BASE + c.logo_url;
         cfg = Object.assign({}, cfg, c);
         applyConfig();
+        return loadWelcome().then(() => { if (!overlay.hidden && !busy) renderAll(); });
       })
       .catch(() => { /* keep defaults */ });
     // Let the college site open the chat from its own buttons: <a href="#ask-xavier"> or window.XaviersAssistant.open()

@@ -16,6 +16,8 @@ from typing import AsyncIterator, Literal
 from app.config import get_settings
 from app.db.models import NegativeFeedback, UnansweredQuestion, UsageDay
 from app.db.session import session_scope
+from app.i18n.languages import answer_language, detect_language
+from app.i18n.translate import TranslationError, translate
 from app.llm.base import ChatMessage
 from app.rag.graph import BUSY_MESSAGE, build_graph
 
@@ -31,7 +33,7 @@ KNOWN_PRICES = {
 
 @dataclass
 class ChatEvent:
-    type: Literal["sources", "token", "replace", "status", "done", "error"]
+    type: Literal["sources", "token", "replace", "status", "done", "error", "language"]
     text: str = ""
     sources: list[dict] = field(default_factory=list)
     answered: bool = True
@@ -81,7 +83,80 @@ def record_feedback(rating: str, question: str, sources: list[str]) -> None:
         db.add(NegativeFeedback(question=question[:1000], sources="\n".join(sources[:10])[:4000]))
 
 
-async def answer_stream(question: str, history: list[ChatMessage] | None = None) -> AsyncIterator[ChatEvent]:
+TRANSLATION_FAILED_NOTE = "\n\n(Sorry, I couldn't translate this answer reliably, so it is shown in English.)"
+HISTORY_MESSAGES_TO_TRANSLATE = 2
+
+
+async def answer_stream(question: str, history: list[ChatMessage] | None = None,
+                        language: str = "auto") -> AsyncIterator[ChatEvent]:
+    """Answer in the student's language. Non-English questions are translated to English, answered and
+    fact-checked in English, and the finished answer is translated back (so it arrives at once, not
+    word by word). Numbers, emails and links are verified after translation."""
+    lang = answer_language(language, question)
+    if lang == "en":
+        async for ev in _answer_english(question, history):
+            yield ev
+        return
+
+    yield ChatEvent(type="language", text=lang)
+    q_lang = detect_language(question, preferred=lang)
+    en_question = question
+    if q_lang != "en":
+        yield ChatEvent(type="status", text="Understanding your question…")
+        try:
+            en_question = await translate(question, q_lang, "en")
+        except TranslationError:
+            pass  # the embedding model is multilingual, so searching with the original still works
+    en_history = await _history_in_english(history or [], lang)
+
+    answer, done = "", ChatEvent(type="done", answered=False)
+    async for ev in _answer_english(en_question, en_history):
+        if ev.type == "token":
+            answer += ev.text
+        elif ev.type == "replace":
+            answer = ev.text
+        elif ev.type == "done":
+            done = ev
+        elif ev.type == "error":
+            yield ChatEvent(type="error", text=await _translated_or_english(ev.text, lang))
+        else:
+            yield ev  # sources, status
+    if answer.strip():
+        yield ChatEvent(type="status", text="Translating the answer…")
+        try:
+            answer = await translate(answer.strip(), "en", lang)
+        except TranslationError:
+            answer = answer.strip() + TRANSLATION_FAILED_NOTE
+        yield ChatEvent(type="token", text=answer)
+    yield done
+
+
+async def _translated_or_english(text: str, lang: str) -> str:
+    try:
+        return await translate(text, "en", lang)
+    except TranslationError:
+        return text
+
+
+async def _history_in_english(history: list[ChatMessage], lang: str) -> list[ChatMessage]:
+    """Follow-up questions need the previous turns in English. Only the last few user turns are
+    translated (each costs time); earlier non-English assistant replies are left out."""
+    out: list[ChatMessage] = []
+    budget = HISTORY_MESSAGES_TO_TRANSLATE
+    for m in reversed(history):
+        src = detect_language(m.content, preferred=lang)
+        if src == "en":
+            out.append(m)
+        elif m.role == "user" and budget > 0:
+            budget -= 1
+            try:
+                out.append(ChatMessage(role="user", content=await translate(m.content, src, "en")))
+            except TranslationError:
+                pass
+    return list(reversed(out))
+
+
+async def _answer_english(question: str, history: list[ChatMessage] | None = None) -> AsyncIterator[ChatEvent]:
     final: dict = {}
     try:
         async for mode, chunk in build_graph().astream(

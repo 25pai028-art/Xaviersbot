@@ -28,7 +28,7 @@ def test_widget_config_has_branding_and_chips():
         assert want in labels
     assert all("question" in c or c.get("action") == "booking" for c in cfg["chips"])
     assert cfg["office"]["url"].startswith("https://sxca.edu.in/")
-    assert cfg["languages"] == ["en"]
+    assert cfg["languages"][0] == "en" and {"hi", "gu", "ml", "ta"} <= set(cfg["languages"])
     assert "Xavier's Assistant" in cfg["welcome"]
 
 
