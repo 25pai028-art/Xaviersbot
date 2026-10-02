@@ -70,6 +70,15 @@ def test_ocr_images_are_kept_to_a_safe_size():
     assert max(tall_strip.size) <= OCR_MAX_SIDE_PX
 
 
+def test_text_in_undecodable_fonts_is_detected():
+    from app.crawler.documents import _unreadable
+
+    assert _unreadable("�" * 40 + " fees")  # font MuPDF couldn't map → OCR the page instead
+    assert _unreadable("".join(chr(0xE000 + i) for i in range(30)))
+    assert not _unreadable("The last date to pay the semester fees is 25 June 2026.")
+    assert not _unreadable("સેમેસ્ટર ફી ભરવાની છેલ્લી તારીખ 25 જૂન 2026 છે.")  # Indian scripts are fine
+
+
 def test_page_with_malformed_text_url_still_extracts():
     from app.crawler.extract_html import extract_html
 

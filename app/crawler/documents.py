@@ -140,9 +140,27 @@ def _pdf_tables_text(page) -> tuple[str, list]:
     return "\n\n".join(out), boxes
 
 
+_UNREADABLE_CHAR = re.compile(r"[�-]")  # replacement char / private-use glyph codes
+
+
+def _unreadable(text: str) -> bool:
+    """Text from a font MuPDF can't map to Unicode comes out as replacement or private-use characters."""
+    chars = [c for c in text if not c.isspace()]
+    return len(chars) >= 20 and len(_UNREADABLE_CHAR.findall(text)) > 0.3 * len(chars)
+
+
+def _quiet_mupdf(fitz) -> None:
+    """MuPDF prints a line to the console for every glyph of a font it can't handle ("unknown cid font
+    type", thousands of times per document), which floods the Colab output. Keep them for our log instead."""
+    fitz.TOOLS.mupdf_display_errors(False)
+    fitz.TOOLS.mupdf_display_warnings(False)
+
+
 def extract_pdf(data: bytes) -> ExtractedDoc:
     import pymupdf as fitz
 
+    _quiet_mupdf(fitz)
+    fitz.TOOLS.reset_mupdf_warnings()
     settings = get_settings()
     doc = fitz.open(stream=data, filetype="pdf")
     parts: list[str] = []
@@ -163,8 +181,10 @@ def extract_pdf(data: bytes) -> ExtractedDoc:
             text = body + "\n\n" + tables_text
         else:
             text = page.get_text("text")
-        if len(text.strip()) < 30 and page.get_images() and ocr_pages < settings.crawl_ocr_max_pages:
-            # Scanned page → render and OCR.
+        # Scanned (little text, has images), or text was drawn but none of it could be decoded (has fonts).
+        no_text = (len(text.strip()) < 30 and page.get_images()) or (not text.strip() and page.get_fonts())
+        if (no_text or _unreadable(text)) and ocr_pages < settings.crawl_ocr_max_pages:
+            # Scanned page, or text in a font MuPDF can't decode → render the page and OCR what's visible.
             from PIL import Image
 
             # Render greyscale at ~200 dpi, but never more than OCR_MAX_SIDE_PX on the longest side
@@ -181,6 +201,10 @@ def extract_pdf(data: bytes) -> ExtractedDoc:
         parts.append(text)
     pages = doc.page_count
     doc.close()
+    warnings = [w for w in fitz.TOOLS.mupdf_warnings().splitlines() if w.strip()]
+    if warnings:  # one line in our log instead of thousands on the console
+        log.info("PDF reader reported %d problems (e.g. %r)%s", len(warnings), warnings[0][:120],
+                 "; unreadable pages were OCR'd" if ocr_used else "")
     return ExtractedDoc(text=sanitize_text("\n\n".join(parts)), title=title.strip(), ocr_used=ocr_used, pages=pages,
                         links=list(dict.fromkeys(links)))
 
