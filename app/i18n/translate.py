@@ -291,13 +291,46 @@ LLM_PROMPT = (
 )
 
 
+# Names the small local model garbles ("Standard College", "Exier"): replaced by [[n]] before translating
+# and put back after, so they stay exactly as written. Longest first.
+LOCKED_NAMES = ["St. Xavier's College (Autonomous), Ahmedabad", "St. Xavier's College, Ahmedabad",
+                "St. Xavier's College", "Xavier's Assistant", "St. Xavier's", "SXCA"]
+_MARKER = re.compile(r"\[\[\s*(\d+)\s*\]\]")
+
+
+def lock_names(text: str) -> tuple[str, dict[str, str]]:
+    from app.config import get_settings
+
+    names = sorted(set(LOCKED_NAMES + [get_settings().app_name]), key=len, reverse=True)
+    found: dict[str, str] = {}
+    for name in names:
+        if name.lower() in text.lower():
+            key = str(len(found) + 1)
+            text = re.sub(re.escape(name), f"[[{key}]]", text, flags=re.I)
+            found[key] = name
+    return text, found
+
+
+def unlock_names(text: str, found: dict[str, str]) -> str:
+    """Put the names back; TranslationError if the model dropped a marker."""
+    missing = [k for k in found if not re.search(rf"\[\[\s*{k}\s*\]\]", text)]
+    if missing:
+        raise TranslationError("translation dropped names: " + ", ".join(found[k] for k in missing))
+    return _MARKER.sub(lambda m: found.get(m.group(1), m.group(0)), text)
+
+
 async def _llm_translate(text: str, src: str, tgt: str) -> str:
     from app.llm.base import ChatMessage
     from app.llm.factory import get_llm
 
+    found: dict[str, str] = {}
+    if src == "en":
+        text, found = lock_names(text)
     prompt = LLM_PROMPT.format(src=LANGUAGES[src].name, tgt=LANGUAGES[tgt].name)
+    if found:
+        prompt += " Copy markers like [[1]] unchanged: they stand for names."
     result = await get_llm().generate(prompt, [ChatMessage(role="user", content=text)])
-    return (result.text or "").strip()
+    return unlock_names((result.text or "").strip(), found)
 
 
 # ---------------------------------------------------------------- public API

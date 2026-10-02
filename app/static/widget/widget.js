@@ -460,7 +460,7 @@ svg { width: 20px; height: 20px; fill: none; stroke: currentColor; stroke-width:
       .catch(() => { /* English welcome stays */ });
   }
 
-  function setLanguage(code, refresh) {
+  function setLanguage(code) {
     if (!LANGUAGE_NAMES[code] || code === lang) return;
     lang = code;
     save(LANG_KEY, lang);
@@ -469,7 +469,13 @@ svg { width: 20px; height: 20px; fill: none; stroke: currentColor; stroke-width:
     }
     langSel.value = lang;
     root.host.setAttribute("lang", code);
-    if (refresh) loadWelcome().then(() => { if (!overlay.hidden && !busy) renderAll(); });
+    loadWelcome().then(updateWelcome);
+  }
+
+  // The welcome is always the first message; re-render just that one (safe while an answer is streaming).
+  function updateWelcome() {
+    const first = log.querySelector(".msg.bot .bubble");
+    if (first) renderMarkdown(first, welcomeText[lang] || cfg.welcome);
   }
 
   function applyConfig() {
@@ -569,8 +575,7 @@ svg { width: 20px; height: 20px; fill: none; stroke: currentColor; stroke-width:
             else if (ev === "language") {
               // Answer comes in this language (e.g. the student typed in Malayalam): follow it in the selector.
               a.lang = data.language;
-              setLanguage(data.language, false);
-              loadWelcome();
+              setLanguage(data.language);
             }
             else if (ev === "done") { a.answered = !!data.answered; }
             else if (ev === "error") { fail(data.message || "Something went wrong. Please try again."); }
@@ -745,7 +750,7 @@ svg { width: 20px; height: 20px; fill: none; stroke: currentColor; stroke-width:
   launcher.addEventListener("click", open);
   $(".close").addEventListener("click", close);
   $(".new-chat").addEventListener("click", newChat);
-  langSel.addEventListener("change", () => setLanguage(langSel.value, true));
+  langSel.addEventListener("change", () => setLanguage(langSel.value));
   input.addEventListener("input", autosize);
   input.addEventListener("keydown", (e) => {
     if (e.key === "Enter" && !e.shiftKey && !e.isComposing) { e.preventDefault(); form.requestSubmit(); }

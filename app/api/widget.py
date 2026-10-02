@@ -5,6 +5,7 @@ from fastapi import APIRouter, Response
 
 from app.config import get_settings
 from app.i18n.languages import LANGUAGES
+from app.i18n.messages import WELCOME
 from app.i18n.translate import TranslationError, translate
 from app.i18n.translate import provider as translation_provider
 from app.rag.prompts import SMALL_TALK_MESSAGES
@@ -41,10 +42,13 @@ def _welcome() -> str:
 async def welcome(response: Response, lang: str = "en") -> dict:
     """The welcome message in the chosen language (translated once, then cached)."""
     lang = lang if lang in LANGUAGES else "en"
-    try:
-        text = await translate(_welcome(), "en", lang)
-    except TranslationError:
-        text, lang = _welcome(), "en"
+    if not get_settings().widget_welcome and lang in WELCOME:  # the standard greeting: hand-written per language
+        text = WELCOME[lang]
+    else:
+        try:
+            text = await translate(_welcome(), "en", lang)
+        except TranslationError:
+            text, lang = _welcome(), "en"
     response.headers["Cache-Control"] = "public, max-age=3600"
     return {"language": lang, "text": text}
 

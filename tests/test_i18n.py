@@ -88,6 +88,27 @@ async def test_translator_chain_falls_back_and_checks(monkeypatch):
         await tr.translate("ബിസിഎ ഫീസ് എത്ര?", "ml", "en")
 
 
+def test_college_and_bot_names_are_locked_during_translation():
+    from app.i18n.translate import lock_names, unlock_names
+
+    text, found = lock_names("Hello! I'm Xavier's Assistant at St. Xavier's College, Ahmedabad.")
+    assert "Xavier" not in text and text.count("[[") == 2
+    back = unlock_names(text.replace("Hello! I'm", "नमस्ते! मैं"), found)
+    assert back == "नमस्ते! मैं Xavier's Assistant at St. Xavier's College, Ahmedabad."
+    with pytest.raises(TranslationError):
+        unlock_names("नमस्ते! [[1]]", found)  # a name was dropped
+
+
+def test_welcome_is_hand_written_for_every_language():
+    from app.i18n.languages import LANGUAGES
+    from app.i18n.messages import WELCOME
+
+    assert set(WELCOME) == set(LANGUAGES) - {"en"}
+    for code, text in WELCOME.items():
+        assert "St. Xavier's College, Ahmedabad" in text and "Xavier's Assistant" in text
+        assert detect_language(text, preferred=code) == code
+
+
 def test_markdown_lines_and_bullets_survive_translation():
     text = "Fees:\n- **BCA**: Rs. 62,500. Paid yearly.\n\n1. Apply online"
     lines = _split(text)
