@@ -99,7 +99,10 @@ class Settings(BaseSettings):
     crawl_user_agent: str = "SXCA-Chatbot-Crawler/1.0 (+https://sxca.edu.in/; official college assistant)"
     crawl_use_playwright: bool = True
     crawl_playwright_min_chars: int = 200
-    crawl_ocr_max_pages: int = 30
+    # Where the crash guard keeps crawl-current.txt / crawl-skip.txt (default: DATA_DIR). On Colab this is a
+    # Google Drive folder, so it survives a runtime that crashed.
+    crawl_state_dir: str = ""
+    crawl_ocr_max_pages: int = 15  # scanned pages OCR'd per document (the important part is usually first)
     ocr_languages: str = "eng+hin+guj"
     tesseract_cmd: str = ""
 

@@ -57,19 +57,40 @@ def ocr_available() -> tuple[bool, str]:
     return bool(wanted), "+".join(wanted or ["eng"])
 
 
+# Memory and time limits for OCR. A poster-sized scan rendered at full resolution is hundreds of MB and
+# copied several times; on Colab's free tier that crashed the whole runtime. Typed notices read fine at
+# this size, and a page that takes longer than the timeout is skipped instead of freezing the crawl.
+OCR_MAX_SIDE_PX = 3000
+OCR_MIN_SIDE_PX = 1500
+OCR_PAGE_TIMEOUT_S = 90
+MAX_IMAGE_PIXELS = 40_000_000  # bigger images (photos, posters) are not OCR'd
+
+
+def _fit_for_ocr(image):
+    """Greyscale, upscaled if small (Tesseract likes ~300 dpi), downscaled if huge."""
+    image = image.convert("L")
+    longest = max(image.width, image.height, 1)
+    if longest > OCR_MAX_SIDE_PX:
+        scale = OCR_MAX_SIDE_PX / longest
+    elif image.width < OCR_MIN_SIDE_PX:
+        scale = min(OCR_MIN_SIDE_PX / max(image.width, 1), OCR_MAX_SIDE_PX / longest)
+    else:
+        return image
+    return image.resize((max(1, int(image.width * scale)), max(1, int(image.height * scale))))
+
+
 def ocr_image(image) -> str:  # PIL.Image
     ok, langs = ocr_available()
     if not ok:
         return ""
     import pytesseract
 
-    image = image.convert("L")
-    # Upscale small images — Tesseract works best at ~300 DPI equivalent.
-    if image.width < 1500:
-        scale = 1500 / max(image.width, 1)
-        image = image.resize((int(image.width * scale), int(image.height * scale)))
+    image = _fit_for_ocr(image)
     try:
-        return pytesseract.image_to_string(image, lang=langs, config="--psm 3")
+        return pytesseract.image_to_string(image, lang=langs, config="--psm 3", timeout=OCR_PAGE_TIMEOUT_S)
+    except RuntimeError as e:  # pytesseract raises RuntimeError on timeout
+        log.warning("OCR gave up after %ss: %s", OCR_PAGE_TIMEOUT_S, e)
+        return ""
     except Exception as e:
         log.warning("OCR failed: %s", e)
         return ""
@@ -78,9 +99,14 @@ def ocr_image(image) -> str:  # PIL.Image
 def extract_image(data: bytes) -> ExtractedDoc:
     from PIL import Image
 
-    with Image.open(io.BytesIO(data)) as img:
+    with Image.open(io.BytesIO(data)) as img:  # opening reads only the header, not the pixels
         if img.width < 300 or img.height < 300:  # icons / thumbnails
             return ExtractedDoc(text="")
+        if img.width * img.height > MAX_IMAGE_PIXELS:  # huge photo/poster: decoding alone needs GBs
+            img.draft("L", (OCR_MAX_SIDE_PX, OCR_MAX_SIDE_PX))  # JPEG: decode at reduced size
+            if img.width * img.height > MAX_IMAGE_PIXELS:
+                log.info("Image too large to OCR (%sx%s), skipped", img.width, img.height)
+                return ExtractedDoc(text="")
         text = ocr_image(img)
     text = sanitize_text(text)
     # Discard OCR noise from photos (few real words).
@@ -141,9 +167,15 @@ def extract_pdf(data: bytes) -> ExtractedDoc:
             # Scanned page → render and OCR.
             from PIL import Image
 
-            pix = page.get_pixmap(dpi=250)
-            img = Image.frombytes("RGB", (pix.width, pix.height), pix.samples)
+            # Render greyscale at ~200 dpi, but never more than OCR_MAX_SIDE_PX on the longest side
+            # (an A0 poster at 250 dpi would be ~290 MB).
+            longest_in = max(page.rect.width, page.rect.height, 1) / 72
+            dpi = max(72, min(200, int(OCR_MAX_SIDE_PX / longest_in)))
+            pix = page.get_pixmap(dpi=dpi, colorspace=fitz.csGRAY)
+            img = Image.frombytes("L", (pix.width, pix.height), pix.samples)
+            del pix
             text = ocr_image(img)
+            del img
             ocr_used = ocr_used or bool(text.strip())
             ocr_pages += 1
         parts.append(text)

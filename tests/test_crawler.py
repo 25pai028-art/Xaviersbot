@@ -40,6 +40,36 @@ def test_robots_skipped_only_for_the_authorised_portal(monkeypatch):
         f.close()
 
 
+def test_crash_guard_skips_the_url_that_crashed_the_last_run(tmp_path):
+    from app.crawler.pipeline import CrashGuard
+
+    g = CrashGuard(tmp_path)
+    g.start("https://sxca.edu.in/wp-content/uploads/2026/06/huge-scan.pdf")
+    # ...the runtime dies here (out of memory): done() is never called...
+    g2 = CrashGuard(tmp_path)
+    assert g2.crashed == "https://sxca.edu.in/wp-content/uploads/2026/06/huge-scan.pdf"
+    assert g2.crashed in g2.skip
+    # A normal finish (or Ctrl+C, which runs `finally`) does not mark anything
+    g2.start("https://sxca.edu.in/ok/")
+    g2.done()
+    g3 = CrashGuard(tmp_path)
+    assert g3.crashed is None and "https://sxca.edu.in/ok/" not in g3.skip
+    assert len(g3.skip) == 1
+
+
+def test_ocr_images_are_kept_to_a_safe_size():
+    from PIL import Image
+
+    from app.crawler.documents import OCR_MAX_SIDE_PX, OCR_MIN_SIDE_PX, _fit_for_ocr
+
+    poster = _fit_for_ocr(Image.new("RGB", (9000, 12000)))  # A0 scan: would be ~320 MB in RGB
+    assert max(poster.size) == OCR_MAX_SIDE_PX and poster.mode == "L"
+    small = _fit_for_ocr(Image.new("RGB", (600, 800)))
+    assert small.width == OCR_MIN_SIDE_PX
+    tall_strip = _fit_for_ocr(Image.new("RGB", (500, 6000)))  # upscaling never exceeds the cap
+    assert max(tall_strip.size) <= OCR_MAX_SIDE_PX
+
+
 def test_page_with_malformed_text_url_still_extracts():
     from app.crawler.extract_html import extract_html
 

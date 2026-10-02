@@ -17,10 +17,12 @@ from __future__ import annotations
 
 import hashlib
 import logging
+import os
 import re
 import threading
 from collections import Counter, deque
 from dataclasses import dataclass, field
+from pathlib import Path
 from typing import Callable
 from urllib.parse import unquote, urlparse
 
@@ -127,6 +129,41 @@ def choose_document_title(url: str, *, link_text: str | None, api_title: str | N
     return title_from_url(url)
 
 
+class CrashGuard:
+    """Remembers the URL being processed in a small file. If the process dies on it (out of memory, killed
+    runtime), the file still names that URL at the next start; it is then skipped for good (listed in
+    crawl-skip.txt; delete the line to try it again). A normal stop or Ctrl+C clears the file, so only
+    real crashes count."""
+
+    def __init__(self, state_dir: Path):
+        state_dir.mkdir(parents=True, exist_ok=True)
+        self.current = state_dir / "crawl-current.txt"
+        self.skip_file = state_dir / "crawl-skip.txt"
+        self.crashed: str | None = None
+        if self.current.exists():
+            url = self.current.read_text(encoding="utf-8").strip()
+            if url:
+                self.crashed = url
+                with self.skip_file.open("a", encoding="utf-8") as f:
+                    f.write(url + "\n")
+            self._write("")
+        self.skip: set[str] = set()
+        if self.skip_file.exists():
+            self.skip = {l.strip() for l in self.skip_file.read_text(encoding="utf-8").splitlines() if l.strip()}
+
+    def _write(self, text: str) -> None:
+        with self.current.open("w", encoding="utf-8") as f:
+            f.write(text)
+            f.flush()
+            os.fsync(f.fileno())  # must be on disk before the risky work starts
+
+    def start(self, url: str) -> None:
+        self._write(url)
+
+    def done(self) -> None:
+        self._write("")
+
+
 class Crawler:
     def __init__(self, settings: Settings | None = None, trigger: str = "cli",
                  on_progress: Callable[[CrawlStats], None] | None = None, reindex: bool = False):
@@ -145,6 +182,7 @@ class Crawler:
         self._queued: dict[str, QueueItem] = {}  # not yet processed, so link context can still be improved
         self._page_context: dict[str, str] = {}  # page url -> "Section › Title" (section for linked documents)
         self._ocr_ok = ocr_available()[0]
+        self.guard = CrashGuard(Path(self.s.crawl_state_dir) if self.s.crawl_state_dir else self.s.data_dir)
 
     # ================================================================ public entry points
     def run(self, crawl: bool = True, index: bool = True) -> CrawlStats:
@@ -153,6 +191,10 @@ class Crawler:
             db.add(run)
             db.flush()
             self.run_id = run.id
+        if self.guard.crashed:
+            log.warning("The previous crawl crashed while processing %s; it is skipped from now on", self.guard.crashed)
+            self._error(self.guard.crashed, "Skipped from now on: the previous crawl crashed while processing it "
+                                            "(probably out of memory). Remove it from crawl-skip.txt to try again.")
         status = "completed"
         try:
             if crawl:
@@ -245,11 +287,18 @@ class Crawler:
             self.stats.queued = len(self._pages) + len(self._docs)
             self.stats.current = item.url
             self.on_progress(self.stats)
+            if item.url in self.guard.skip:  # crashed a previous crawl
+                self.stats.skipped += 1
+                self.stats.processed += 1
+                continue
+            self.guard.start(item.url)
             try:
                 self._process(item)
             except Exception as e:  # never let one URL kill the crawl
                 log.exception("Failed processing %s", item.url)
                 self._error(item.url, f"{type(e).__name__}: {e}")
+            finally:
+                self.guard.done()
             self.stats.processed += 1
 
     def _process(self, item: QueueItem) -> None:
