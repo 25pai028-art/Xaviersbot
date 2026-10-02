@@ -773,9 +773,9 @@ svg { width: 20px; height: 20px; fill: none; stroke: currentColor; stroke-width:
     const voice = voiceFor(code);
     const name = LANGUAGE_NAMES[code] || code;
     if (!voice && code !== "en") {
-      return voiceNote(`This device has no ${name} voice, so the answer can't be read aloud in ${name}. ` +
-                       "Chrome on Android phones has most Indian voices; on Windows you can add one under " +
-                       "Settings → Time & language → Speech.", "warn", 10000);
+      return voiceNote(`This browser has no ${name} voice, so the answer can't be read aloud in ${name}. ` +
+                       "On a computer, open this page in Microsoft Edge (it has natural voices for Indian languages); " +
+                       "on Android phones, Chrome reads most Indian languages.", "warn", 12000);
     }
     const chunks = speechChunks(text);
     speakingBtn = btn;
