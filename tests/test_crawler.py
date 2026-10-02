@@ -12,6 +12,18 @@ def test_normalize_strips_fragment_and_tracking():
     assert normalize_url("/admissions/", "https://sxca.edu.in/x/") == "https://sxca.edu.in/admissions/"
     assert normalize_url("mailto:a@b.c") is None
     assert normalize_url("javascript:void(0)") is None
+    # Malformed text on a faculty profile crashed the whole page before
+    assert normalize_url("http://scholar.example:10.37896") is None
+    assert normalize_url("https://sxca.edu.in:8080/x") == "https://sxca.edu.in:8080/x"
+
+
+def test_page_with_malformed_text_url_still_extracts():
+    from app.crawler.extract_html import extract_html
+
+    html = "<html><body><main><p>Dr. Pinky Desai. Ref: http://doi.example:10.37896/abc and https://sxca.edu.in/x/</p></main></body></html>"
+    page = extract_html(html, "https://sxca.edu.in/author/pinky-desai/")
+    assert "Pinky Desai" in page.text
+    assert ("https://sxca.edu.in/x/", "") in page.links
 
 
 def test_domain_allowlist_and_blocklist():

@@ -36,15 +36,19 @@ def normalize_url(url: str, base: str | None = None) -> str | None:
     url = url.strip()
     if url.lower().startswith(("mailto:", "tel:", "javascript:", "data:", "whatsapp:", "#")):
         return None
-    if base:
-        url = urljoin(base, url)
-    url, _ = urldefrag(url)
-    p = urlparse(url)
-    if p.scheme not in ("http", "https") or not p.netloc:
+    try:
+        if base:
+            url = urljoin(base, url)
+        url, _ = urldefrag(url)
+        p = urlparse(url)
+        if p.scheme not in ("http", "https") or not p.netloc:
+            return None
+        host = p.hostname.lower() if p.hostname else ""
+        port = p.port
+    except ValueError:  # malformed, e.g. "http://site:10.37896" in a profile's text: not a link
         return None
-    host = p.hostname.lower() if p.hostname else ""
-    if p.port and p.port not in (80, 443):
-        host = f"{host}:{p.port}"
+    if port and port not in (80, 443):
+        host = f"{host}:{port}"
     query = urlencode([(k, v) for k, v in parse_qsl(p.query, keep_blank_values=True) if not DROP_QUERY_PARAMS.match(k)])
     path = re.sub(r"/{2,}", "/", p.path or "/")
     return urlunparse((p.scheme, host, path, "", query, ""))
