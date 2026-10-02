@@ -278,6 +278,13 @@ svg { width: 20px; height: 20px; fill: none; stroke: currentColor; stroke-width:
 .composer .mic, .composer .send { width: 46px; height: 46px; border-radius: 12px; display: grid; place-items: center; flex: none; }
 .composer .mic { border: 1px solid var(--line); background: var(--surface); color: var(--muted); }
 .composer .mic[aria-pressed="true"] { color: #fff; background: var(--crimson); border-color: var(--crimson); }
+.composer .mic.listening { animation: xa-pulse 1.4s ease-out infinite; }
+@keyframes xa-pulse { 0% { box-shadow: 0 0 0 0 rgba(184, 53, 78, .55); } 100% { box-shadow: 0 0 0 12px rgba(184, 53, 78, 0); } }
+@media (prefers-reduced-motion: reduce) { .composer .mic.listening { animation: none; } }
+.voice-note { margin: 0; padding: 7px 12px; border-radius: 10px; font-size: 13.5px; line-height: 1.4; }
+.voice-note.live { background: var(--chip-bg); color: var(--chip-fg); font-weight: 600; }
+.voice-note.info { background: var(--bubble-bot); color: var(--fg); }
+.voice-note.warn { background: var(--chip-bg); color: var(--fg); border-left: 3px solid var(--crimson); }
 .composer .send { border: 0; background: var(--crimson); color: #fff; }
 .composer .send:disabled { opacity: .5; cursor: default; }
 .fineprint { margin: 0; text-align: center; font-size: 11.5px; color: var(--muted); line-height: 1.4; }
@@ -303,6 +310,7 @@ svg { width: 20px; height: 20px; fill: none; stroke: currentColor; stroke-width:
   <div class="scroll"><div class="log" role="log" aria-live="polite"></div></div>
   <div class="dock"><div class="dock-inner">
     <div class="chips" role="group" aria-label="Quick questions"></div>
+    <p class="voice-note" role="status" aria-live="polite" hidden></p>
     <form class="composer" novalidate>
       <label class="lang-pick" title="Answer language" hidden>
         <span class="globe" aria-hidden="true">${I.globe}</span><span class="name" aria-hidden="true"></span><span class="code" aria-hidden="true"></span>
@@ -732,49 +740,124 @@ svg { width: 20px; height: 20px; fill: none; stroke: currentColor; stroke-width:
       || null;
   }
   if ("speechSynthesis" in window) speechSynthesis.getVoices(); // starts loading the voice list
+
+  // One line above the text box that says what voice input/output is doing, or why it can't.
+  let noteTimer = null;
+  function voiceNote(text, kind = "info", ms = 7000) {
+    const note = $(".voice-note");
+    clearTimeout(noteTimer);
+    note.textContent = text;
+    note.className = "voice-note " + kind;
+    note.hidden = !text;
+    if (text && ms) noteTimer = setTimeout(() => { note.hidden = true; }, ms);
+  }
+
+  // Chrome stops reading long texts after ~15 s, so answers are read sentence by sentence.
+  function speechChunks(text) {
+    const clean = text.replace(/[*#`_]/g, "").replace(/https?:\/\/\S+/g, "").replace(/\s+/g, " ").trim();
+    const parts = clean.match(/[^.!?।؟\n]+[.!?।؟]*\s*/g) || [clean];
+    const out = [];
+    for (const p of parts) {
+      if (out.length && (out[out.length - 1] + p).length < 180) out[out.length - 1] += p;
+      else out.push(p);
+    }
+    return out.map((s) => s.trim()).filter(Boolean);
+  }
+
   function toggleSpeak(text, btn, code) {
     if (speakingBtn === btn) return stopSpeaking();
     stopSpeaking();
-    const voice = voiceFor(code);
-    if (!voice && code !== "en") {
-      const label = (LANGUAGE_NAMES[code] || code) + " voice not available on this device";
-      btn.title = label;
-      btn.append(" " + label);
-      setTimeout(() => { btn.title = "Read aloud"; if (btn.lastChild.nodeType === 3) btn.lastChild.remove(); }, 2500);
-      return;
+    if (!("speechSynthesis" in window)) {
+      return voiceNote("Reading aloud isn't available in this browser. Try Google Chrome or Microsoft Edge.", "warn");
     }
-    const u = new SpeechSynthesisUtterance(text.replace(/[*#`_]/g, "").replace(/https?:\/\/\S+/g, ""));
-    u.lang = SPEECH_LOCALE[code] || "en-IN";
-    if (voice) u.voice = voice;
-    u.onend = u.onerror = () => { if (speakingBtn === btn) stopSpeaking(); };
-    speakingBtn = btn; btn.setAttribute("aria-pressed", "true");
-    speechSynthesis.speak(u);
+    const voice = voiceFor(code);
+    const name = LANGUAGE_NAMES[code] || code;
+    if (!voice && code !== "en") {
+      return voiceNote(`This device has no ${name} voice, so the answer can't be read aloud in ${name}. ` +
+                       "Chrome on Android phones has most Indian voices; on Windows you can add one under " +
+                       "Settings → Time & language → Speech.", "warn", 10000);
+    }
+    const chunks = speechChunks(text);
+    speakingBtn = btn;
+    btn.setAttribute("aria-pressed", "true");
+    chunks.forEach((chunk, i) => {
+      const u = new SpeechSynthesisUtterance(chunk);
+      u.lang = SPEECH_LOCALE[code] || "en-IN";
+      if (voice) u.voice = voice;
+      if (i === chunks.length - 1) u.onend = () => { if (speakingBtn === btn) stopSpeaking(); };
+      u.onerror = (e) => {
+        if (speakingBtn !== btn || e.error === "interrupted" || e.error === "canceled") return;
+        stopSpeaking();
+        voiceNote("The answer couldn't be read aloud (" + e.error + "). Check that your sound is on and try again.", "warn");
+      };
+      speechSynthesis.speak(u);
+    });
+    speechSynthesis.resume(); // Chrome sometimes leaves the queue paused after a page has been in the background
   }
 
+  // ---- voice typing: the browser's speech service (Chrome/Edge send the audio to Google/Microsoft)
   const Recognition = window.SpeechRecognition || window.webkitSpeechRecognition;
-  let recognizer = null;
-  if (Recognition) {
-    micBtn.hidden = false;
-    micBtn.addEventListener("click", () => {
-      if (recognizer) { recognizer.stop(); return; }
-      recognizer = new Recognition();
-      recognizer.lang = SPEECH_LOCALE[lang] || "en-IN";
-      recognizer.interimResults = true;
-      micBtn.setAttribute("aria-pressed", "true");
-      micBtn.setAttribute("aria-label", "Stop listening");
-      recognizer.onresult = (e) => {
-        input.value = Array.from(e.results).map((r) => r[0].transcript).join(" ");
-        autosize();
-      };
-      recognizer.onend = recognizer.onerror = () => {
-        recognizer = null;
-        micBtn.setAttribute("aria-pressed", "false");
-        micBtn.setAttribute("aria-label", "Speak your question");
-        input.focus();
-      };
-      recognizer.start();
-    });
+  const MIC_ERRORS = {
+    "not-allowed": "The microphone is blocked. Click the lock or camera icon at the left of the address bar, allow the microphone for this site, then tap the mic again.",
+    "service-not-allowed": "Voice typing is turned off in this browser. Allow the microphone for this site, or type your question.",
+    "audio-capture": "No microphone was found. Check that one is connected, and that Windows allows apps to use it (Settings → Privacy & security → Microphone).",
+    "network": "Voice typing needs an internet connection: the browser sends your voice to its speech service. Check the connection and try again.",
+    "language-not-supported": "{lang} voice typing isn't available in this browser. Try Google Chrome, choose English, or type your question.",
+    "no-speech": "I didn't hear anything. Tap the mic and start speaking straight away.",
+  };
+  let recognizer = null, heard = false;
+
+  function micStopped() {
+    recognizer = null;
+    micBtn.setAttribute("aria-pressed", "false");
+    micBtn.setAttribute("aria-label", "Speak your question");
+    micBtn.classList.remove("listening");
   }
+
+  micBtn.hidden = false;
+  micBtn.addEventListener("click", () => {
+    if (recognizer) { recognizer.stop(); return; }
+    if (!Recognition) {
+      return voiceNote("Voice typing isn't available in this browser. It works in Google Chrome and Microsoft Edge; here, please type your question.", "warn", 9000);
+    }
+    if (!window.isSecureContext) {
+      return voiceNote("Voice typing only works on a secure (https://) page.", "warn");
+    }
+    const name = LANGUAGE_NAMES[lang] || "English";
+    stopSpeaking();
+    heard = false;
+    recognizer = new Recognition();
+    recognizer.lang = SPEECH_LOCALE[lang] || "en-IN";
+    recognizer.interimResults = true;
+    recognizer.maxAlternatives = 1;
+    micBtn.setAttribute("aria-pressed", "true");
+    micBtn.setAttribute("aria-label", "Stop listening");
+    micBtn.classList.add("listening");
+    voiceNote(`Listening… speak now in ${name}. Tap the mic again to stop.`, "live", 0);
+    recognizer.onresult = (e) => {
+      heard = true;
+      input.value = Array.from(e.results).map((r) => r[0].transcript).join(" ");
+      autosize();
+    };
+    recognizer.onerror = (e) => {
+      micStopped();
+      if (e.error === "aborted") return voiceNote("");
+      voiceNote((MIC_ERRORS[e.error] || "Voice typing stopped (" + e.error + "). Please try again or type your question.")
+        .replace("{lang}", name), "warn", 12000);
+    };
+    recognizer.onend = () => {
+      const wasListening = !!recognizer;
+      micStopped();
+      if (wasListening) voiceNote(heard ? "Check the text, then press send." : "", "info", 4000);
+      input.focus();
+    };
+    try {
+      recognizer.start();
+    } catch (err) {
+      micStopped();
+      voiceNote("Voice typing couldn't start: " + err.message, "warn");
+    }
+  });
 
   // ------------------------------------------------------------------ open / close
   let savedOverflow = "";
