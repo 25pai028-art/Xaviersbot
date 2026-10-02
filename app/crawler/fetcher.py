@@ -58,6 +58,8 @@ class Fetcher:
     # ------------------------------------------------------------ politeness
     def allowed_by_robots(self, url: str) -> bool:
         host = host_of(url)
+        if host in self.settings.crawl_ignore_robots_domains:  # crawling authorised by the college
+            return True
         if host not in self._robots:
             rp = urllib.robotparser.RobotFileParser()
             scheme = "https" if url.startswith("https") else "http"
@@ -88,6 +90,8 @@ class Fetcher:
             headers["If-None-Match"] = etag
         if last_modified:
             headers["If-Modified-Since"] = last_modified
+        if host_of(url) in self.settings.crawl_browser_ua_domains:
+            headers["User-Agent"] = self.settings.crawl_browser_user_agent
         self._wait_turn(host_of(url))
         for attempt in range(2):
             try:
@@ -130,7 +134,9 @@ class Fetcher:
 
                 self._playwright = sync_playwright().start()
                 self._browser = self._playwright.chromium.launch(headless=True)
-            page = self._browser.new_page(user_agent=self.settings.crawl_user_agent)
+            ua = (self.settings.crawl_browser_user_agent if host_of(url) in self.settings.crawl_browser_ua_domains
+                  else self.settings.crawl_user_agent)
+            page = self._browser.new_page(user_agent=ua)
             try:
                 self._wait_turn(host_of(url))
                 page.goto(url, wait_until="networkidle", timeout=int(self.settings.crawl_timeout_seconds * 1000))

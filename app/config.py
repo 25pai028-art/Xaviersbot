@@ -72,7 +72,17 @@ class Settings(BaseSettings):
     guard_exam_office_contact: str = "Examination Office (coe@sxca.edu.in, 079-26308055)"
 
     # --- Crawler ---
-    crawl_start_urls: CsvList = Field(default_factory=lambda: ["https://sxca.edu.in/"])
+    crawl_start_urls: CsvList = Field(
+        default_factory=lambda: ["https://sxca.edu.in/", "https://admissions.sxca.edu.in/SXCA/"])
+    # The college authorised crawling its admissions portal (fee structures, refund rules, brochures),
+    # although that site's robots.txt disallows all crawlers. Only these hosts skip robots.txt.
+    crawl_ignore_robots_domains: CsvList = Field(default_factory=lambda: ["admissions.sxca.edu.in"])
+    # The admissions portal answers "Invalid Browser" to unknown user agents; these hosts get a browser
+    # user agent that still names the crawler at the end.
+    crawl_browser_ua_domains: CsvList = Field(default_factory=lambda: ["admissions.sxca.edu.in"])
+    crawl_browser_user_agent: str = (
+        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/140.0 "
+        "Safari/537.36 SXCA-Chatbot-Crawler/1.0 (+https://sxca.edu.in/)")
     crawl_allowed_domains: CsvList = Field(
         default_factory=lambda: ["sxca.edu.in", "admissions.sxca.edu.in", "library.sxca.edu.in"]
     )
@@ -133,6 +143,7 @@ class Settings(BaseSettings):
 
     _split_lists = field_validator(
         "crawl_start_urls", "crawl_allowed_domains", "crawl_blocked_domains", "cors_origins", "widget_languages",
+        "crawl_ignore_robots_domains", "crawl_browser_ua_domains",
         mode="before",
     )(_csv)
 

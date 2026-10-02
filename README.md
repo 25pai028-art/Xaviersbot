@@ -198,4 +198,6 @@ pytest
 
 - **Crawled:** `sxca.edu.in` (pages, news, events, and PDFs/DOCX uploaded since `CRAWL_MIN_UPLOAD_YEAR`), public Google Drive PDFs linked from college pages, and `library.sxca.edu.in`.
 - **Never crawled:** the login portals (`lms.`, `portal.`, ERP).
-- **Not crawled by default:** `admissions.sxca.edu.in`. Its robots.txt disallows all crawlers, and the crawler respects that. The admissions and fee pages on the main site are crawled.
+- **Admissions portal:** `admissions.sxca.edu.in/SXCA/` holds the official fee structures, refund rules, intake and course brochures. Its robots.txt disallows all crawlers, but the college authorised crawling it, so it is listed in `CRAWL_IGNORE_ROBOTS_DOMAINS`. Every other site's robots.txt is respected.
+  - The portal rejects unknown browsers, so it gets a browser user agent that still ends with the crawler's name (`CRAWL_BROWSER_UA_DOMAINS`).
+  - Its Registration, Apply Now, Register and Forgot Password links (`?a7p1=…`) are never followed.

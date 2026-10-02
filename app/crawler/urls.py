@@ -23,6 +23,9 @@ SKIP_PATH_PATTERNS = re.compile(
     r"/wp-content/themes/|/wp-includes/)",
     re.IGNORECASE,
 )
+# Links that open forms instead of content: the admissions portal's Registration / Apply Now / Register /
+# Forgot Password pages are "?a7p1=<token>" links. The crawler must never fetch or submit those.
+SKIP_QUERY_PATTERNS = re.compile(r"(^|&)(a7p1|returnurl|redirect|action)=", re.IGNORECASE)
 # Query parameters that only track / sort / share and would create duplicates.
 DROP_QUERY_PARAMS = re.compile(r"^(utm_.*|fbclid|gclid|replytocom|share|amp|print|_ga|ref|elementor-preview)$", re.I)
 UPLOAD_YEAR = re.compile(r"/wp-content/uploads/(\d{4})/(\d{2})/")
@@ -83,7 +86,8 @@ def classify(url: str) -> str | None:
         return "image"
     if ext in SKIP_EXTENSIONS:
         return None
-    if SKIP_PATH_PATTERNS.search(urlparse(url).path):
+    p = urlparse(url)
+    if SKIP_PATH_PATTERNS.search(p.path) or SKIP_QUERY_PATTERNS.search(p.query):
         return None
     return "html"
 

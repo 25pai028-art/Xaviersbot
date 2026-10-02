@@ -17,6 +17,29 @@ def test_normalize_strips_fragment_and_tracking():
     assert normalize_url("https://sxca.edu.in:8080/x") == "https://sxca.edu.in:8080/x"
 
 
+def test_admissions_portal_documents_crawled_but_never_its_forms():
+    from app.crawler.urls import classify
+
+    base = "https://admissions.sxca.edu.in/SXCA/"
+    assert classify(normalize_url("downloads/Fees Structure 2026-2027 Self Financed - UG&PG.pdf", base)) == "pdf"
+    assert classify(base) == "html"
+    assert classify(normalize_url("?a7p1=cmxrMWtPSkc4TDRtL3VTbG9paEhjNzV2OTR2", base)) is None  # Register / Apply Now
+
+
+def test_robots_skipped_only_for_the_authorised_portal(monkeypatch):
+    from app.config import get_settings
+    from app.crawler.fetcher import Fetcher
+
+    f = Fetcher(get_settings())
+    try:
+        f._robots["sxca.edu.in"] = __import__("urllib.robotparser").robotparser.RobotFileParser()
+        f._robots["sxca.edu.in"].parse(["User-agent: *", "Disallow: /"])
+        assert f.allowed_by_robots("https://admissions.sxca.edu.in/SXCA/downloads/x.pdf")
+        assert not f.allowed_by_robots("https://sxca.edu.in/anything/")
+    finally:
+        f.close()
+
+
 def test_page_with_malformed_text_url_still_extracts():
     from app.crawler.extract_html import extract_html
 
