@@ -29,6 +29,15 @@
     en: "English", hi: "हिन्दी", gu: "ગુજરાતી", mr: "मराठी", ta: "தமிழ்", te: "తెలుగు", kn: "ಕನ್ನಡ",
     ml: "മലയാളം", bn: "বাংলা", pa: "ਪੰਜਾਬੀ", or: "ଓଡ଼ିଆ", ur: "اردو", as: "অসমীয়া", sa: "संस्कृतम्",
   };
+  // Short labels for the language pill on phones.
+  const LANGUAGE_SHORT = { en: "EN", hi: "HI", gu: "GU", ml: "ML", ta: "TA", te: "TE", kn: "KN", mr: "MR", bn: "BN", pa: "PA", or: "OR", ur: "UR" };
+  // "Type your question…" in each language, cycled in the text box so students see they can write in any of them.
+  const TYPE_HINT = {
+    en: "Type your question…", hi: "अपना सवाल लिखें…", gu: "તમારો પ્રશ્ન લખો…", ml: "നിങ്ങളുടെ ചോദ്യം ടൈപ്പ് ചെയ്യൂ…",
+    ta: "உங்கள் கேள்வியை எழுதுங்கள்…", te: "మీ ప్రశ్నను టైప్ చేయండి…", kn: "ನಿಮ್ಮ ಪ್ರಶ್ನೆಯನ್ನು ಟೈಪ್ ಮಾಡಿ…",
+    mr: "तुमचा प्रश्न लिहा…", bn: "আপনার প্রশ্ন লিখুন…", pa: "ਆਪਣਾ ਸਵਾਲ ਲਿਖੋ…", or: "ଆପଣଙ୍କ ପ୍ରଶ୍ନ ଲେଖନ୍ତୁ…",
+    ur: "اپنا سوال لکھیں…",
+  };
   const SPEECH_LOCALE = { en: "en-IN", hi: "hi-IN", gu: "gu-IN", mr: "mr-IN", ta: "ta-IN", te: "te-IN", kn: "kn-IN", ml: "ml-IN", bn: "bn-IN", pa: "pa-IN", or: "or-IN", ur: "ur-IN" };
 
   // Used until /api/widget/config answers (or if it can't be reached).
@@ -69,6 +78,7 @@
     up: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M7 11v9H4.5a1 1 0 0 1-1-1v-7a1 1 0 0 1 1-1zM7 11l4-7.5c1.4 0 2.5 1.1 2.5 2.5v3.5h5a2 2 0 0 1 2 2.3l-1.2 6.5a2 2 0 0 1-2 1.7H7"/></svg>',
     down: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M7 13V4H4.5a1 1 0 0 0-1 1v7a1 1 0 0 0 1 1zM7 13l4 7.5c1.4 0 2.5-1.1 2.5-2.5v-3.5h5a2 2 0 0 0 2-2.3l-1.2-6.5a2 2 0 0 0-2-1.7H7"/></svg>',
     link: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M14 4h6v6M20 4l-9 9M18 14v4.5a1.5 1.5 0 0 1-1.5 1.5h-11A1.5 1.5 0 0 1 4 18.5v-11A1.5 1.5 0 0 1 5.5 6H10"/></svg>',
+    globe: '<svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M3 12h18M12 3c2.5 2.6 3.8 5.6 3.8 9s-1.3 6.4-3.8 9c-2.5-2.6-3.8-5.6-3.8-9S9.5 5.6 12 3z"/></svg>',
   };
 
   // ------------------------------------------------------------------ styles
@@ -153,13 +163,6 @@ svg { width: 20px; height: 20px; fill: none; stroke: currentColor; stroke-width:
 .bar h2 { margin: 0; font: 600 17px/1.2 var(--display); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .bar p { margin: 2px 0 0; font-size: 12.5px; opacity: .82; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .bar .actions { margin-left: auto; display: flex; align-items: center; gap: 8px; flex: none; }
-.bar select {
-  appearance: none; background: transparent; color: #fff; border: 1px solid rgba(255,255,255,.5); border-radius: 999px;
-  padding: 7px 28px 7px 12px; font: 600 13px var(--display);
-  background-image: linear-gradient(45deg, transparent 50%, #fff 50%), linear-gradient(135deg, #fff 50%, transparent 50%);
-  background-position: calc(100% - 15px) 52%, calc(100% - 10px) 52%; background-size: 5px 5px; background-repeat: no-repeat;
-}
-.bar select option { color: #1d2433; background: #fff; }
 .bar .icon-btn { width: 40px; height: 40px; display: grid; place-items: center; border-radius: 8px; border: 1px solid rgba(255,255,255,.35); background: transparent; color: #fff; }
 .bar .icon-btn:hover { background: rgba(255,255,255,.12); }
 .bar .close { background: var(--crimson); border-color: transparent; }
@@ -218,7 +221,7 @@ svg { width: 20px; height: 20px; fill: none; stroke: currentColor; stroke-width:
 .handoff a.alt { background: transparent; color: var(--fg); border: 1px solid var(--line); }
 
 .dock { flex: none; background: var(--surface); border-top: 1px solid var(--line); padding-bottom: env(safe-area-inset-bottom); }
-.dock-inner { max-width: 820px; margin: 0 auto; padding: 10px max(16px, env(safe-area-inset-left)) 6px; display: grid; gap: 8px; }
+.dock-inner { max-width: 820px; margin: 0 auto; padding: 10px max(16px, env(safe-area-inset-left)) 6px; display: grid; grid-template-columns: minmax(0, 1fr); gap: 8px; }
 .chips { display: flex; gap: 8px; overflow-x: auto; scrollbar-width: none; padding: 2px 0; }
 .chips::-webkit-scrollbar { display: none; }
 .chip {
@@ -227,14 +230,51 @@ svg { width: 20px; height: 20px; fill: none; stroke: currentColor; stroke-width:
 }
 .chip:hover { border-color: var(--chip-fg); }
 .chip:disabled { opacity: .55; cursor: default; }
-.composer { display: flex; align-items: flex-end; gap: 8px; }
-.composer textarea {
+.composer { display: flex; align-items: flex-end; gap: 8px; min-width: 0; }
+
+/* Language pill: a native <select> stretched invisibly over a styled label, so it stays fully accessible. */
+.lang-pick {
+  position: relative; flex: none; height: 46px; display: flex; align-items: center; gap: 6px;
+  padding: 0 28px 0 11px; border: 1px solid var(--line); border-radius: 12px;
+  background: var(--surface); color: var(--fg); font: 600 13.5px var(--display); cursor: pointer;
+}
+.lang-pick:hover { border-color: var(--crimson); }
+.lang-pick:focus-within { outline: 3px solid var(--focus); outline-offset: 2px; }
+.lang-pick .globe svg { width: 18px; height: 18px; color: var(--crimson); }
+.lang-pick .code { display: none; }
+.lang-pick::after {
+  content: ""; position: absolute; right: 12px; top: 50%; width: 6px; height: 6px; margin-top: -5px;
+  border-right: 2px solid var(--muted); border-bottom: 2px solid var(--muted); transform: rotate(45deg);
+}
+.lang-pick select {
+  position: absolute; inset: 0; width: 100%; height: 100%; opacity: 0; cursor: pointer; font-size: 16px;
+  border: 0; appearance: none;
+}
+.lang-pick select option { color: #1d2433; background: #fff; }
+@media (max-width: 560px) {
+  .lang-pick { padding: 0 22px 0 9px; gap: 4px; }
+  .lang-pick .name { display: none; }
+  .lang-pick .code { display: inline; }
+  .lang-pick::after { right: 9px; }
+}
+
+/* Text box with a hint that cycles through the languages ("Type your question…", "अपना सवाल लिखें…", …). */
+.field { position: relative; flex: 1; min-width: 0; display: flex; }
+.field textarea {
   flex: 1; min-width: 0; resize: none; max-height: 140px; min-height: 46px;
   padding: 11px 14px; border: 1px solid var(--line); border-radius: 12px; background: var(--page); color: var(--fg);
   font-size: 16px; line-height: 1.45;
 }
-.composer textarea::placeholder { color: var(--muted); }
-.composer textarea:focus { outline: none; border-color: var(--navy); box-shadow: 0 0 0 3px rgba(36, 58, 123, .18); }
+.field textarea:focus { outline: none; border-color: var(--navy); box-shadow: 0 0 0 3px rgba(36, 58, 123, .18); }
+.hint {
+  position: absolute; left: 15px; right: 12px; top: 11.5px; pointer-events: none;
+  color: var(--muted); font-size: 16px; line-height: 1.45;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  transition: opacity .35s ease, transform .35s ease;
+}
+.hint.leaving { opacity: 0; transform: translateY(-8px); }
+.hint.arriving { opacity: 0; transform: translateY(8px); transition: none; }
+.field.filled .hint { display: none; }
 .composer .mic, .composer .send { width: 46px; height: 46px; border-radius: 12px; display: grid; place-items: center; flex: none; }
 .composer .mic { border: 1px solid var(--line); background: var(--surface); color: var(--muted); }
 .composer .mic[aria-pressed="true"] { color: #fff; background: var(--crimson); border-color: var(--crimson); }
@@ -256,7 +296,6 @@ svg { width: 20px; height: 20px; fill: none; stroke: currentColor; stroke-width:
     <img class="logo" alt="">
     <div class="titles"><h2 id="xa-title"></h2><p class="college"></p></div>
     <div class="actions">
-      <label class="lang-wrap" hidden><span class="sr">Answer language</span><select class="lang"></select></label>
       <button class="icon-btn new-chat" type="button" aria-label="Start a new chat" title="New chat">${I.plus}<span class="txt">New chat</span></button>
       <button class="icon-btn close" type="button" aria-label="Close chat" title="Close (Esc)">${I.close}</button>
     </div>
@@ -265,8 +304,15 @@ svg { width: 20px; height: 20px; fill: none; stroke: currentColor; stroke-width:
   <div class="dock"><div class="dock-inner">
     <div class="chips" role="group" aria-label="Quick questions"></div>
     <form class="composer" novalidate>
-      <label class="sr" for="xa-input">Your question</label>
-      <textarea id="xa-input" rows="1" autocomplete="off" enterkeyhint="send"></textarea>
+      <label class="lang-pick" title="Answer language" hidden>
+        <span class="globe" aria-hidden="true">${I.globe}</span><span class="name" aria-hidden="true"></span><span class="code" aria-hidden="true"></span>
+        <select class="lang" aria-label="Answer language"></select>
+      </label>
+      <div class="field">
+        <label class="sr" for="xa-input">Your question, in any language</label>
+        <textarea id="xa-input" rows="1" autocomplete="off" enterkeyhint="send"></textarea>
+        <span class="hint" aria-hidden="true"></span>
+      </div>
       <button type="button" class="mic" aria-label="Speak your question" aria-pressed="false" hidden>${I.mic}</button>
       <button type="submit" class="send" aria-label="Send">${I.send}</button>
     </form>
@@ -277,7 +323,7 @@ svg { width: 20px; height: 20px; fill: none; stroke: currentColor; stroke-width:
   const $ = (sel) => root.querySelector(sel);
   const launcher = $(".launcher"), overlay = $(".overlay"), log = $(".log"), scroller = $(".scroll");
   const input = $("#xa-input"), form = $(".composer"), sendBtn = $(".send"), micBtn = $(".mic");
-  const chipsBox = $(".chips"), langSel = $(".lang");
+  const chipsBox = $(".chips"), langSel = $(".lang"), field = $(".field"), hint = $(".hint");
 
   // ------------------------------------------------------------------ safe markdown → DOM
   const INLINE = /\*\*([^*\n]+)\*\*|\[([^\]\n]+)\]\(((?:https?:\/\/|mailto:)[^\s)]+)\)|(https?:\/\/[^\s<>()"']*[^\s<>()"'.,;:!?])|`([^`\n]+)`|\*([^*\s][^*\n]*)\*|([A-Za-z0-9._%+-]+@[A-Za-z0-9-]+(?:\.[A-Za-z0-9-]+)*\.[A-Za-z]{2,})/g;
@@ -442,12 +488,58 @@ svg { width: 20px; height: 20px; fill: none; stroke: currentColor; stroke-width:
 
   function renderLanguages() {
     const langs = (cfg.languages || ["en"]).filter((l) => LANGUAGE_NAMES[l]);
-    $(".lang-wrap").hidden = langs.length < 2;
+    $(".lang-pick").hidden = langs.length < 2;
     langSel.replaceChildren();
     for (const l of langs) { const o = document.createElement("option"); o.value = l; o.textContent = LANGUAGE_NAMES[l]; langSel.append(o); }
     if (!langs.includes(lang)) lang = langs[0] || "en";
     langSel.value = lang;
+    updateLanguagePill();
+    restartHints();
   }
+
+  function updateLanguagePill() {
+    $(".lang-pick .name").textContent = LANGUAGE_NAMES[lang] || "English";
+    $(".lang-pick .code").textContent = LANGUAGE_SHORT[lang] || lang.toUpperCase();
+    $(".lang-pick").title = "Answer language: " + (LANGUAGE_NAMES[lang] || lang);
+  }
+
+  // ---- cycling hint: the chosen language first, then every other language, one at a time
+  const reducedMotion = matchMedia("(prefers-reduced-motion: reduce)");
+  let hintTimer = null, hintIndex = 0, hintGeneration = 0;
+  function hintLanguages() {
+    const langs = (cfg.languages || ["en"]).filter((l) => TYPE_HINT[l]);
+    return [lang, ...langs.filter((l) => l !== lang)].filter((l) => TYPE_HINT[l]);
+  }
+  function showHint(code) {
+    hint.textContent = TYPE_HINT[code];
+    hint.dir = code === "ur" ? "rtl" : "ltr";
+    hint.lang = code;
+  }
+  function nextHint() {
+    const list = hintLanguages();
+    if (list.length < 2 || overlay.hidden || field.classList.contains("filled")) return;
+    hintIndex = (hintIndex + 1) % list.length;
+    const generation = hintGeneration;
+    hint.classList.add("leaving");                 // slide up and fade out…
+    setTimeout(() => {
+      if (generation !== hintGeneration) return;   // the language changed meanwhile: restartHints() took over
+      showHint(list[hintIndex]);
+      hint.classList.remove("leaving");
+      hint.classList.add("arriving");              // …jump below, invisible…
+      void hint.offsetWidth;
+      hint.classList.remove("arriving");           // …and slide up into place
+    }, 350);
+  }
+  function restartHints() {
+    clearInterval(hintTimer);
+    hintTimer = null;
+    hintIndex = 0;
+    hintGeneration += 1;
+    hint.classList.remove("leaving", "arriving");
+    showHint(lang in TYPE_HINT ? lang : "en");
+    if (!reducedMotion.matches && !overlay.hidden && hintLanguages().length > 1) hintTimer = setInterval(nextHint, 2600);
+  }
+  function stopHints() { clearInterval(hintTimer); hintTimer = null; }
 
   // Welcome message in the chosen language (translated by the server, cached per tab).
   const welcomeText = {};
@@ -469,6 +561,8 @@ svg { width: 20px; height: 20px; fill: none; stroke: currentColor; stroke-width:
     }
     langSel.value = lang;
     root.host.setAttribute("lang", code);
+    updateLanguagePill();
+    restartHints();
     loadWelcome().then(updateWelcome);
   }
 
@@ -486,7 +580,7 @@ svg { width: 20px; height: 20px; fill: none; stroke: currentColor; stroke-width:
     $(".bar .logo").alt = cfg.college_name + " logo";
     $("#xa-title").textContent = cfg.bot_name;
     $(".college").textContent = cfg.college_name;
-    input.placeholder = "Type your question…";
+    input.placeholder = "";  // the cycling .hint replaces the placeholder
     input.maxLength = cfg.max_chars || 1000;
     renderChips();
     renderLanguages();
@@ -703,6 +797,7 @@ svg { width: 20px; height: 20px; fill: none; stroke: currentColor; stroke-width:
     scrollDown();
     requestAnimationFrame(() => requestAnimationFrame(() => overlay.classList.add("open")));
     setTimeout(() => input.focus({ preventScroll: true }), 60);
+    restartHints();
   }
 
   function close() {
@@ -710,6 +805,7 @@ svg { width: 20px; height: 20px; fill: none; stroke: currentColor; stroke-width:
     stopSpeaking();
     if (recognizer) recognizer.stop();
     overlay.classList.remove("open");
+    stopHints();
     launcher.hidden = false;
     launcher.setAttribute("aria-expanded", "false");
     document.documentElement.style.overflow = savedOverflow;
@@ -745,6 +841,7 @@ svg { width: 20px; height: 20px; fill: none; stroke: currentColor; stroke-width:
   function autosize() {
     input.style.height = "auto";
     input.style.height = Math.min(input.scrollHeight, 140) + "px";
+    field.classList.toggle("filled", input.value.length > 0);  // hide the cycling hint while typing
   }
 
   launcher.addEventListener("click", open);
