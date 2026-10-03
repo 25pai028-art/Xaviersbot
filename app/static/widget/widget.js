@@ -78,6 +78,7 @@
     up: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M7 11v9H4.5a1 1 0 0 1-1-1v-7a1 1 0 0 1 1-1zM7 11l4-7.5c1.4 0 2.5 1.1 2.5 2.5v3.5h5a2 2 0 0 1 2 2.3l-1.2 6.5a2 2 0 0 1-2 1.7H7"/></svg>',
     down: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M7 13V4H4.5a1 1 0 0 0-1 1v7a1 1 0 0 0 1 1zM7 13l4 7.5c1.4 0 2.5-1.1 2.5-2.5v-3.5h5a2 2 0 0 0 2-2.3l-1.2-6.5a2 2 0 0 0-2-1.7H7"/></svg>',
     link: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M14 4h6v6M20 4l-9 9M18 14v4.5a1.5 1.5 0 0 1-1.5 1.5h-11A1.5 1.5 0 0 1 4 18.5v-11A1.5 1.5 0 0 1 5.5 6H10"/></svg>',
+    waves: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 10v4M8 6.5v11M12 3.5v17M16 6.5v11M20 10v4"/></svg>',
     globe: '<svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M3 12h18M12 3c2.5 2.6 3.8 5.6 3.8 9s-1.3 6.4-3.8 9c-2.5-2.6-3.8-5.6-3.8-9S9.5 5.6 12 3z"/></svg>',
   };
 
@@ -167,10 +168,11 @@ svg { width: 20px; height: 20px; fill: none; stroke: currentColor; stroke-width:
 .bar .icon-btn:hover { background: rgba(255,255,255,.12); }
 .bar .close { background: var(--crimson); border-color: transparent; }
 .bar .close:hover { background: var(--crimson); filter: brightness(1.1); }
-.bar .new-chat .txt { display: none; }
+.bar .icon-btn .txt { display: none; }
+.bar .voice-chat[aria-pressed="true"] { background: #fff; color: var(--navy); border-color: #fff; }
 @media (min-width: 720px) {
-  .bar .new-chat { width: auto; padding: 0 14px 0 10px; gap: 6px; display: flex; font: 600 13px var(--display); }
-  .bar .new-chat .txt { display: inline; }
+  .bar .new-chat, .bar .voice-chat { width: auto; padding: 0 14px 0 10px; gap: 6px; display: flex; align-items: center; font: 600 13px var(--display); }
+  .bar .icon-btn .txt { display: inline; }
 }
 @media (max-width: 420px) { .bar p { display: none; } .bar .logo { width: 34px; height: 40px; } }
 
@@ -281,6 +283,29 @@ svg { width: 20px; height: 20px; fill: none; stroke: currentColor; stroke-width:
 .composer .mic.listening { animation: xa-pulse 1.4s ease-out infinite; }
 @keyframes xa-pulse { 0% { box-shadow: 0 0 0 0 rgba(184, 53, 78, .55); } 100% { box-shadow: 0 0 0 12px rgba(184, 53, 78, 0); } }
 @media (prefers-reduced-motion: reduce) { .composer .mic.listening { animation: none; } }
+/* Voice chat panel: replaces the chips and text box while talking. */
+.voice-panel { display: flex; align-items: center; gap: 14px; padding: 4px 0; }
+.orb {
+  width: 64px; height: 64px; flex: none; border-radius: 50%; border: 0;
+  display: grid; place-items: center; background: var(--crimson); color: #fff;
+  transition: background .25s ease;
+}
+.orb svg { width: 26px; height: 26px; }
+.orb:disabled { cursor: default; }
+.voice-panel[data-state="listening"] .orb { animation: xa-pulse 1.4s ease-out infinite; }
+.voice-panel[data-state="thinking"] .orb, .voice-panel[data-state="speaking"] .orb { background: var(--navy); }
+.voice-panel[data-state="speaking"] .orb { animation: xa-breathe 1.6s ease-in-out infinite; }
+.orb .dots i { background: #fff; opacity: .5; }
+@keyframes xa-breathe { 0%, 100% { transform: scale(1); } 50% { transform: scale(1.08); } }
+@media (prefers-reduced-motion: reduce) { .voice-panel .orb { animation: none !important; } }
+.vp-text { flex: 1; min-width: 0; display: grid; gap: 2px; }
+.vp-state { font: 600 15px/1.3 var(--display); color: var(--fg); }
+.vp-heard { color: var(--muted); font-size: 14px; line-height: 1.4; overflow-wrap: anywhere; max-height: 2.8em; overflow: hidden; }
+.vp-end {
+  flex: none; height: 40px; padding: 0 16px; border-radius: 999px;
+  border: 1px solid var(--line); background: var(--surface); color: var(--fg); font: 600 13px var(--display);
+}
+.vp-end:hover { border-color: var(--crimson); }
 .voice-note { margin: 0; padding: 7px 12px; border-radius: 10px; font-size: 13.5px; line-height: 1.4; }
 .voice-note.live { background: var(--chip-bg); color: var(--chip-fg); font-weight: 600; }
 .voice-note.info { background: var(--bubble-bot); color: var(--fg); }
@@ -303,6 +328,7 @@ svg { width: 20px; height: 20px; fill: none; stroke: currentColor; stroke-width:
     <img class="logo" alt="">
     <div class="titles"><h2 id="xa-title"></h2><p class="college"></p></div>
     <div class="actions">
+      <button class="icon-btn voice-chat" type="button" aria-pressed="false" aria-label="Voice chat: talk with the assistant" title="Voice chat: ask out loud, hear the answers">${I.waves}<span class="txt">Voice chat</span></button>
       <button class="icon-btn new-chat" type="button" aria-label="Start a new chat" title="New chat">${I.plus}<span class="txt">New chat</span></button>
       <button class="icon-btn close" type="button" aria-label="Close chat" title="Close (Esc)">${I.close}</button>
     </div>
@@ -311,6 +337,11 @@ svg { width: 20px; height: 20px; fill: none; stroke: currentColor; stroke-width:
   <div class="dock"><div class="dock-inner">
     <div class="chips" role="group" aria-label="Quick questions"></div>
     <p class="voice-note" role="status" aria-live="polite" hidden></p>
+    <div class="voice-panel" hidden>
+      <button type="button" class="orb"></button>
+      <div class="vp-text"><div class="vp-state" role="status" aria-live="polite"></div><div class="vp-heard"></div></div>
+      <button type="button" class="vp-end">End</button>
+    </div>
     <form class="composer" novalidate>
       <label class="lang-pick" title="Answer language" hidden>
         <span class="globe" aria-hidden="true">${I.globe}</span><span class="name" aria-hidden="true"></span><span class="code" aria-hidden="true"></span>
@@ -695,7 +726,8 @@ svg { width: 20px; height: 20px; fill: none; stroke: currentColor; stroke-width:
     persist();
     setBusy(false);
     scrollDown();
-    if (!overlay.hidden) input.focus({ preventScroll: true });
+    if (!overlay.hidden && !voiceChat.on) input.focus({ preventScroll: true });
+    return a;
   }
 
   async function sendFeedback(m, rating, mark) {
@@ -725,8 +757,9 @@ svg { width: 20px; height: 20px; fill: none; stroke: currentColor; stroke-width:
   // ------------------------------------------------------------------ voice (the browser's own speech engines)
   // Which Indian-language voices exist depends on the device: Chrome and Android phones have most of them,
   // Windows/Edge fewer. Without a matching voice we say so instead of mispronouncing with an English voice.
-  let speakingBtn = null;
+  let speakingBtn = null, speakToken = 0;
   function stopSpeaking() {
+    speakToken += 1; // callbacks of whatever was being read are now ignored
     if ("speechSynthesis" in window) speechSynthesis.cancel();
     if (speakingBtn) speakingBtn.setAttribute("aria-pressed", "false");
     speakingBtn = null;
@@ -764,35 +797,54 @@ svg { width: 20px; height: 20px; fill: none; stroke: currentColor; stroke-width:
     return out.map((s) => s.trim()).filter(Boolean);
   }
 
+  /** Read `text` aloud in language `code`. Returns false if this browser can't (no speech, or no voice for
+   *  that language). onDone(how, error) is called once when it finishes ("end") or fails ("error"), but not
+   *  when stopped with stopSpeaking(). */
+  function speak(text, code, onDone) {
+    if (!("speechSynthesis" in window)) return false;
+    const voice = voiceFor(code);
+    if (!voice && code !== "en") return false;
+    speechSynthesis.cancel();
+    const token = ++speakToken;
+    const chunks = speechChunks(text);
+    if (!chunks.length) { if (onDone) onDone("end"); return true; }
+    chunks.forEach((chunk, i) => {
+      const u = new SpeechSynthesisUtterance(chunk);
+      u.lang = SPEECH_LOCALE[code] || "en-IN";
+      if (voice) u.voice = voice;
+      if (i === chunks.length - 1) u.onend = () => { if (token === speakToken && onDone) onDone("end"); };
+      u.onerror = (e) => {
+        if (token !== speakToken || e.error === "interrupted" || e.error === "canceled") return;
+        speakToken += 1;
+        speechSynthesis.cancel();
+        if (onDone) onDone("error", e.error);
+      };
+      speechSynthesis.speak(u);
+    });
+    speechSynthesis.resume(); // Chrome sometimes leaves the queue paused after a page has been in the background
+    return true;
+  }
+
+  function noVoiceMessage(code) {
+    const name = LANGUAGE_NAMES[code] || code;
+    return `This browser has no ${name} voice, so answers can't be read aloud in ${name}. ` +
+           "On a computer, open this page in Microsoft Edge (it has natural voices for Indian languages); " +
+           "on Android phones, Chrome reads most Indian languages.";
+  }
+
   function toggleSpeak(text, btn, code) {
     if (speakingBtn === btn) return stopSpeaking();
     stopSpeaking();
     if (!("speechSynthesis" in window)) {
       return voiceNote("Reading aloud isn't available in this browser. Try Google Chrome or Microsoft Edge.", "warn");
     }
-    const voice = voiceFor(code);
-    const name = LANGUAGE_NAMES[code] || code;
-    if (!voice && code !== "en") {
-      return voiceNote(`This browser has no ${name} voice, so the answer can't be read aloud in ${name}. ` +
-                       "On a computer, open this page in Microsoft Edge (it has natural voices for Indian languages); " +
-                       "on Android phones, Chrome reads most Indian languages.", "warn", 12000);
-    }
-    const chunks = speechChunks(text);
+    const started = speak(text, code, (how, err) => {
+      if (speakingBtn === btn) stopSpeaking();
+      if (how === "error") voiceNote("The answer couldn't be read aloud (" + err + "). Check that your sound is on and try again.", "warn");
+    });
+    if (!started) return voiceNote(noVoiceMessage(code), "warn", 12000);
     speakingBtn = btn;
     btn.setAttribute("aria-pressed", "true");
-    chunks.forEach((chunk, i) => {
-      const u = new SpeechSynthesisUtterance(chunk);
-      u.lang = SPEECH_LOCALE[code] || "en-IN";
-      if (voice) u.voice = voice;
-      if (i === chunks.length - 1) u.onend = () => { if (speakingBtn === btn) stopSpeaking(); };
-      u.onerror = (e) => {
-        if (speakingBtn !== btn || e.error === "interrupted" || e.error === "canceled") return;
-        stopSpeaking();
-        voiceNote("The answer couldn't be read aloud (" + e.error + "). Check that your sound is on and try again.", "warn");
-      };
-      speechSynthesis.speak(u);
-    });
-    speechSynthesis.resume(); // Chrome sometimes leaves the queue paused after a page has been in the background
   }
 
   // ---- voice typing: the browser's speech service (Chrome/Edge send the audio to Google/Microsoft)
@@ -859,6 +911,128 @@ svg { width: 20px; height: 20px; fill: none; stroke: currentColor; stroke-width:
     }
   });
 
+  // ------------------------------------------------------------------ voice chat: talk back and forth
+  // listen → (silence ends the turn) → send → answer shown and read aloud → listen again, until "End".
+  const voiceChat = { on: false, state: "idle", misses: 0, rec: null, turn: 0, warnedNoVoice: false };
+  const panel = $(".voice-panel"), orb = $(".orb"), vpState = $(".vp-state"), vpHeard = $(".vp-heard");
+  const voiceBtn = $(".voice-chat");
+  const ORB_ICON = { listening: I.mic, thinking: '<span class="dots" aria-hidden="true"><i></i><i></i><i></i></span>', speaking: I.speak };
+
+  function setVoiceState(state, text) {
+    voiceChat.state = state;
+    panel.dataset.state = state;
+    vpState.textContent = text;
+    orb.innerHTML = ORB_ICON[state] || I.mic; // static icon markup only
+    orb.disabled = state === "thinking";
+    orb.setAttribute("aria-label", { listening: "Finish speaking and send", speaking: "Interrupt and speak", thinking: "Thinking" }[state] || "Voice chat");
+  }
+
+  function startVoiceChat() {
+    if (!Recognition) {
+      return voiceNote("Voice chat needs voice typing, which works in Google Chrome and Microsoft Edge. Here, please type your question.", "warn", 9000);
+    }
+    if (!window.isSecureContext) return voiceNote("Voice chat only works on a secure (https://) page.", "warn");
+    if (busy) return voiceNote("Please wait for the current answer, then start voice chat.", "info", 4000);
+    if (recognizer) { try { recognizer.abort(); } catch (e) { /* already stopped */ } micStopped(); }
+    stopSpeaking();
+    voiceNote("");
+    Object.assign(voiceChat, { on: true, misses: 0 });
+    panel.hidden = false;
+    form.hidden = true;
+    chipsBox.hidden = true;
+    voiceBtn.setAttribute("aria-pressed", "true");
+    voiceBtn.setAttribute("aria-label", "End voice chat");
+    listenTurn();
+    orb.focus({ preventScroll: true });
+  }
+
+  function stopVoiceChat(message, kind = "info") {
+    if (!voiceChat.on) return;
+    voiceChat.on = false;
+    voiceChat.turn += 1;
+    const rec = voiceChat.rec;
+    voiceChat.rec = null;
+    if (rec) { try { rec.abort(); } catch (e) { /* already stopped */ } }
+    stopSpeaking();
+    panel.hidden = true;
+    form.hidden = false;
+    chipsBox.hidden = false;
+    voiceBtn.setAttribute("aria-pressed", "false");
+    voiceBtn.setAttribute("aria-label", "Voice chat: talk with the assistant");
+    if (message) voiceNote(message, kind, 12000);
+  }
+
+  function listenTurn() {
+    if (!voiceChat.on) return;
+    const name = LANGUAGE_NAMES[lang] || "English";
+    setVoiceState("listening", `Listening… speak in ${name}`);
+    vpHeard.textContent = "";
+    let heardText = "", failed = null;
+    const rec = new Recognition();
+    voiceChat.rec = rec;
+    rec.lang = SPEECH_LOCALE[lang] || "en-IN";
+    rec.interimResults = true;
+    rec.maxAlternatives = 1;
+    rec.onresult = (e) => {
+      heardText = Array.from(e.results).map((r) => r[0].transcript).join(" ").trim();
+      vpHeard.textContent = heardText ? "“" + heardText + "”" : "";
+    };
+    rec.onerror = (e) => { failed = e.error; };
+    rec.onend = () => {
+      if (voiceChat.rec !== rec) return; // ended by stopVoiceChat or replaced
+      voiceChat.rec = null;
+      if (failed && failed !== "no-speech" && failed !== "aborted") {
+        return stopVoiceChat((MIC_ERRORS[failed] || "Voice chat stopped (" + failed + ").").replace("{lang}", name), "warn");
+      }
+      if (!heardText) {
+        voiceChat.misses += 1;
+        if (voiceChat.misses >= 2) {
+          return stopVoiceChat("I didn't hear anything, so voice chat has paused. Tap “Voice chat” to talk again.");
+        }
+        return listenTurn();
+      }
+      voiceChat.misses = 0;
+      answerTurn(heardText);
+    };
+    try {
+      rec.start();
+    } catch (err) {
+      voiceChat.rec = null;
+      stopVoiceChat("Voice chat couldn't start: " + err.message, "warn");
+    }
+  }
+
+  async function answerTurn(question) {
+    setVoiceState("thinking", "Thinking…");
+    const turn = voiceChat.turn;
+    const answer = await ask(question);
+    if (!voiceChat.on || turn !== voiceChat.turn) return;
+    if (!answer || !answer.text) return listenTurn();
+    speakTurn(answer.text, answer.lang || "en");
+  }
+
+  function speakTurn(text, code) {
+    const turn = ++voiceChat.turn;
+    setVoiceState("speaking", "Speaking… tap the circle to interrupt");
+    const started = speak(text, code, () => {
+      if (voiceChat.on && turn === voiceChat.turn) setTimeout(() => { if (turn === voiceChat.turn) listenTurn(); }, 350);
+    });
+    if (!started) { // no voice for this language here: keep talking, answers stay on screen as text
+      if (!voiceChat.warnedNoVoice) {
+        voiceChat.warnedNoVoice = true;
+        voiceNote(noVoiceMessage(code), "warn", 12000);
+      }
+      listenTurn();
+    }
+  }
+
+  orb.addEventListener("click", () => {
+    if (voiceChat.state === "listening" && voiceChat.rec) voiceChat.rec.stop(); // done talking: send now
+    else if (voiceChat.state === "speaking") { voiceChat.turn += 1; stopSpeaking(); listenTurn(); } // interrupt
+  });
+  $(".vp-end").addEventListener("click", () => { stopVoiceChat(""); input.focus(); });
+  voiceBtn.addEventListener("click", () => (voiceChat.on ? stopVoiceChat("") : startVoiceChat()));
+
   // ------------------------------------------------------------------ open / close
   let savedOverflow = "";
   function fitViewport() {
@@ -885,6 +1059,7 @@ svg { width: 20px; height: 20px; fill: none; stroke: currentColor; stroke-width:
 
   function close() {
     if (overlay.hidden) return;
+    stopVoiceChat("");
     stopSpeaking();
     if (recognizer) recognizer.stop();
     overlay.classList.remove("open");
@@ -899,6 +1074,7 @@ svg { width: 20px; height: 20px; fill: none; stroke: currentColor; stroke-width:
 
   function newChat() {
     if (busy) return;
+    stopVoiceChat("");
     stopSpeaking();
     messages = [];
     persist();
