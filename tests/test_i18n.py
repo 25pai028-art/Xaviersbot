@@ -191,3 +191,17 @@ async def test_previous_malayalam_turn_is_translated_for_follow_ups(monkeypatch)
     await _collect(service.answer_stream("ഹോസ്റ്റൽ?", history, "ml"))
     assert seen["question"] == "And the hostel?"
     assert [m.content for m in seen["history"]] == ["What is the BCA fee?"]
+
+
+async def test_who_are_you_in_any_language_is_answered_at_once(monkeypatch):
+    from app.i18n.messages import WELCOME
+    from app.rag import service
+
+    def boom(*_a, **_k):
+        raise AssertionError("small talk must not translate or search")
+
+    monkeypatch.setattr(service, "translate", boom)
+    monkeypatch.setattr(service, "build_graph", boom)
+    events = [e async for e in service.answer_stream("നിങ്ങൾ ആരാണ്?", [], language="auto")]
+    assert [e.type for e in events] == ["language", "token", "done"]
+    assert events[1].text == WELCOME["ml"]

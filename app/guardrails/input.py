@@ -97,12 +97,32 @@ SMALL_TALK: list[tuple[str, re.Pattern]] = [
     ("how_are_you", re.compile(r"^(how are (you|u)|how r u|how'?s it going|kaise ho|kem cho majama|what'?s up|sup)( today)?"
                                + _END, re.I)),
     ("identity", re.compile(r"^(who are (you|u)|what are you|what can you do|what do you do|are you (an? )?(ai|bot|robot|"
-                            r"human|real person)|who (made|created|built|developed) you|what is your name|your name)"
+                            r"human|real person|real|chatgpt|gpt|a person)|who (made|created|built|developed) you|"
+                            r"what('?s| is) your name|your name|who is this|what is this|who am i (talking|chatting|speaking) "
+                            r"(to|with)|tell me about (yourself|you)|introduce yourself|what should i call you|"
+                            r"what can i ask( you)?|how can you help( me)?|"
+                            r"(aap|ap|tum|tu|tame|tamey|tu) (kaun|kon|koun) (ho|hai|hain|cho|che|chho|chhe)|"
+                            r"kaun (ho|hai) (aap|tum)|"
+                            # Hindi / Marathi, Gujarati, Malayalam, Tamil, Telugu, Kannada, Bengali, Punjabi
+                            r"(आप|तुम|तू|तुम्ही) कौन (हैं|हो|है)|(आप|तुम्ही|तू) कोण (आहात|आहेस)|"
+                            r"(તમે|તું) કોણ (છો|છે)|"
+                            r"(നിങ്ങൾ|നീ) ആരാണ്|"
+                            r"(நீங்கள்|நீ) யார்|"
+                            r"(మీరు|నువ్వు) ఎవరు|"
+                            r"(ನೀವು|ನೀನು) ಯಾರು|"
+                            r"(আপনি|তুমি) কে|"
+                            r"(ਤੁਸੀਂ|ਤੂੰ) ਕੌਣ (ਹੋ|ਹੈਂ))"
                             + _END, re.I)),
     ("ack", re.compile(r"^(ok+a*y*|okie|k+|kk|alright|all right|fine|got it|understood|i see|cool|great|nice|good|"
                        r"awesome|perfect|hmm+|ah+|oh+|sure|yes|yeah|yep|no|nope|noted|done|right|haan|ha|theek hai|"
                        r"thik hai|achha|acha|barabar|saru)( then| thanks?| thank you)?" + _END, re.I)),
 ]
+# "hi, who are you?" / "hello there, what can you do"
+_LEADING_GREETING = re.compile(r"^(hi+|hello+|hey+|helo|hlo|namaste|namaskar|good (morning|afternoon|evening))"
+                               r"( there| bot)?[\s,.!-]+(?=\w)", re.I)
+# Words people tack on that don't change the question: "who are you bro", "what can you do exactly?"
+_FILLER_END = re.compile(r"(\s+(bro|bruh|buddy|dude|man|sir|madam|ma'?am|please|pls|plz|exactly|actually|really|"
+                         r"again|then|yaar|bhai|ji))+(?=[\s!.?,:)🙂😊👍🙏]*$)", re.I)
 # A leading acknowledgement before a real question: "ok, and what is the BCA fee?"
 _LEADING_ACK = re.compile(r"^(ok+a*y*|okie|alright|fine|got it|cool|great|thanks?|thank you|hmm+|sure|yes|no|acha|achha)"
                           r"[\s,.!-]+(?=\w)", re.I)
@@ -126,11 +146,36 @@ def _strip_profanity(text: str) -> str:
     return re.sub(r"\s{2,}", " ", cleaned).strip(" ,.!-")
 
 
+def small_talk_kind(question: str) -> str:
+    """greeting | thanks | bye | how_are_you | identity | ack, or "" for a real question. Chat spelling and a
+    greeting in front are allowed: "hi, who r u bro?" is identity."""
+    q = question.strip()
+    for text in dict.fromkeys((q, _casual(q))):
+        for kind, pattern in SMALL_TALK:
+            if pattern.match(text):
+                return kind
+        rest = _LEADING_GREETING.sub("", text)
+        if rest != text:
+            for kind, pattern in SMALL_TALK:
+                if pattern.match(rest):
+                    return "greeting" if kind == "ack" else kind  # "hi, ok" is a greeting
+    return ""
+
+
+def _casual(q: str) -> str:
+    q = re.sub(r"\s+", " ", q.lower())
+    q = re.sub(r"\br\b", "are", q)
+    q = re.sub(r"\b(u|ya|yu)\b", "you", q)
+    q = re.sub(r"\bur\b", "your", q)
+    q = re.sub(r"\bwat\b|\bwht\b", "what", q)
+    return _FILLER_END.sub("", q)
+
+
 def check_input(question: str) -> GuardResult:
     q = question.strip()
-    for kind, pattern in SMALL_TALK:
-        if pattern.match(q):
-            return GuardResult(kind="small_talk", question=q, small_talk=kind)
+    kind = small_talk_kind(q)
+    if kind:
+        return GuardResult(kind="small_talk", question=q, small_talk=kind)
     q = _LEADING_ACK.sub("", q)  # "ok, what about hostel?" → "what about hostel?"
     if MISCONDUCT.search(q):
         return GuardResult(kind="misconduct", question=q)

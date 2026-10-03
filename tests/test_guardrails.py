@@ -121,6 +121,12 @@ def test_addressing_the_bot_is_removed_with_the_abuse():
     ("bye", "bye"), ("that's all", "bye"),
     ("how are you?", "how_are_you"),
     ("who are you", "identity"), ("Who made you?", "identity"), ("what can you do?", "identity"),
+    # Chat spelling, a greeting in front, filler words, and other languages
+    ("who r u", "identity"), ("who r you?", "identity"), ("hi who are you", "identity"),
+    ("Hello, what can you do?", "identity"), ("who are you bro", "identity"), ("tell me about yourself", "identity"),
+    ("what's your name?", "identity"), ("aap kaun ho", "identity"), ("तुम कौन हो?", "identity"),
+    ("તમે કોણ છો?", "identity"), ("നിങ്ങൾ ആരാണ്?", "identity"), ("நீ யார்", "identity"),
+    ("hi, how are you?", "how_are_you"), ("hi ok", "greeting"),
 ])
 def test_small_talk_is_recognised(q, kind):
     g = check_input(q)
@@ -137,7 +143,9 @@ def test_leading_acknowledgement_is_dropped_from_real_questions(q, rest):
     assert g.kind == "ok" and g.question == rest
 
 
-@pytest.mark.parametrize("q", ["Is the hostel okay for girls?", "Good morning assembly timings?", "Hi, what is the BCA fee?"])
+@pytest.mark.parametrize("q", ["Is the hostel okay for girls?", "Good morning assembly timings?", "Hi, what is the BCA fee?",
+                               "Who are you supposed to contact for admissions?", "what is this year's BCA fee",
+                               "who is the principal"])
 def test_questions_containing_small_talk_words_are_still_questions(q):
     assert check_input(q).kind != "small_talk"
 

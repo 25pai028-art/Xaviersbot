@@ -16,7 +16,9 @@ from typing import AsyncIterator, Literal
 from app.config import get_settings
 from app.db.models import NegativeFeedback, UnansweredQuestion, UsageDay
 from app.db.session import session_scope
+from app.guardrails.input import small_talk_kind
 from app.i18n.languages import answer_language, detect_language
+from app.i18n.messages import WELCOME
 from app.i18n.translate import TranslationError, translate
 from app.llm.base import ChatMessage
 from app.rag.graph import BUSY_MESSAGE, build_graph
@@ -99,6 +101,11 @@ async def answer_stream(question: str, history: list[ChatMessage] | None = None,
         return
 
     yield ChatEvent(type="language", text=lang)
+    # "Hi" / "who are you?" in any language: the hand-written introduction, at once (no translating, no search).
+    if small_talk_kind(question) in ("greeting", "identity", "how_are_you") and lang in WELCOME:
+        yield ChatEvent(type="token", text=WELCOME[lang])
+        yield ChatEvent(type="done", answered=True)
+        return
     q_lang = detect_language(question, preferred=lang)
     en_question = question
     if q_lang != "en":
