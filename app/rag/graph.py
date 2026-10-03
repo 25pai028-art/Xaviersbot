@@ -40,8 +40,9 @@ from app.guardrails.input import check_input, is_about_college
 from app.llm.base import ChatMessage, LLMError
 from app.llm.factory import get_llm
 from app.rag.embeddings import embed_query
-from app.rag.factcheck import check_answer, is_no_info_answer
-from app.rag.prompts import (CALM_MESSAGE, MISCONDUCT_MESSAGE, NO_INFO_MESSAGE, OUT_OF_SCOPE_MESSAGE, SMALL_TALK_MESSAGES,
+from app.rag.factcheck import check_answer, drop_unsupported_lines, is_no_info_answer
+from app.rag.prompts import (CALM_MESSAGE, MISCONDUCT_MESSAGE, NO_INFO_MESSAGE, OUT_OF_SCOPE_MESSAGE, RETRY_PROMPT,
+                             SMALL_TALK_MESSAGES,
                              STALE_NOTE,
                              build_system_prompt, build_user_turn, format_context)
 from app.rag.query import contextualize, expand_abbreviations, is_time_sensitive, llm_rewrite
@@ -234,12 +235,50 @@ async def verify(state: RAGState) -> RAGState:
         return {}
     # Check against exactly what the model saw: chunk text plus each source's title, URL, date and year.
     hits = state.get("context_hits") or state["retrieval"].hits
-    fc = check_answer(answer, format_context(hits), state["question"])
+    context = format_context(hits)
+    fc = check_answer(answer, context, state["question"])
     if fc.ok:
         return _stale_note(state, hits, answer)
     log.warning("Fact check failed, unsupported: %s", fc.unsupported)
-    get_stream_writer()({"type": "replace", "text": NO_INFO_MESSAGE})
-    return {"answer": NO_INFO_MESSAGE, "answered": False,
+    write = get_stream_writer()
+
+    # One more try, told exactly what was wrong. Small models often add up fee heads ("₹500 + ₹1,000 →
+    # ₹1,500") while the rest of the answer is right; throwing it all away would lose a good answer.
+    write({"type": "replace", "text": ""})
+    write({"type": "status", "text": "Double-checking the figures…"})
+    usage = state.get("usage")
+    retry = ""
+    try:
+        s = get_settings()
+        history = state.get("history", [])[-2 * s.chat_history_turns:]
+        messages = history + [
+            ChatMessage(role="user", content=build_user_turn(state["question"], hits)),
+            ChatMessage(role="assistant", content=answer),
+            ChatMessage(role="user", content=RETRY_PROMPT.format(wrong=", ".join(fc.unsupported[:5]))),
+        ]
+        parts: list[str] = []
+        async with llm_slot:
+            async for delta in get_llm().stream(build_system_prompt(s.app_name), messages):
+                parts.append(delta)
+                write({"type": "token", "text": delta})
+            usage = _add_usage({**state, "usage": usage})
+        retry = "".join(parts).strip()
+    except LLMError as e:
+        log.warning("LLM failure on fact-check retry: %s", e)
+    if retry and not is_no_info_answer(retry):
+        fc2 = check_answer(retry, context, state["question"])
+        if fc2.ok:
+            return {"answer": retry, "usage": usage, **_stale_note(state, hits, retry)}
+        log.warning("Fact check failed again, unsupported: %s", fc2.unsupported)
+        answer, fc = retry, fc2
+
+    # Still wrong: keep the lines whose facts check out, if a real answer remains.
+    trimmed = drop_unsupported_lines(answer, fc.unsupported)
+    if trimmed and check_answer(trimmed, context, state["question"]).ok:
+        write({"type": "replace", "text": trimmed})
+        return {"answer": trimmed, "usage": usage, **_stale_note(state, hits, trimmed)}
+    write({"type": "replace", "text": NO_INFO_MESSAGE})
+    return {"answer": NO_INFO_MESSAGE, "answered": False, "usage": usage,
             "reason": "fact check failed: " + ", ".join(fc.unsupported[:5])}
 
 

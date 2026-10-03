@@ -135,6 +135,64 @@ async def test_graph_replaces_hallucinated_fee(monkeypatch):
     assert "fact check failed" in final["reason"]
 
 
+async def test_wrong_figure_gets_one_corrected_retry(monkeypatch):
+    r = Retrieval(hits=[_hit(CONTEXT, 0.7)], best_score=0.7, relevant=True)
+    answers = iter(["The B.Com fee is Rs. 45,000 per year.", "The B.Com fee is Rs. 20,000 per year."])
+
+    class Retrying(FakeLLM):
+        async def stream(self, system, messages):
+            self.calls += 1
+            if self.calls == 2:  # the retry is told which figure was wrong
+                assert "45,000" in messages[-1].content
+            for word in next(answers).split(" "):
+                yield word + " "
+
+    llm = Retrying("")
+    monkeypatch.setattr(graph_mod, "get_llm", lambda: llm)
+    monkeypatch.setattr(graph_mod, "embed_query", lambda q: [0.0])
+    monkeypatch.setattr(graph_mod, "hybrid_search", lambda *a, **k: r)
+    final = await graph_mod.build_graph().ainvoke({"question": "B.Com fee?", "history": []})
+    assert final["answered"] is True and final["answer"] == "The B.Com fee is Rs. 20,000 per year."
+
+
+async def test_only_the_wrong_line_is_dropped_when_the_retry_is_wrong_too(monkeypatch):
+    r = Retrieval(hits=[_hit(CONTEXT, 0.7)], best_score=0.7, relevant=True)
+    events, final, llm = await _run(
+        monkeypatch, r, "The B.Com fee is Rs. 20,000 per year.\n- Library fee: Rs. 1,500\n- Email: admissions@sxca.edu.in")
+    assert llm.calls == 2  # answer + one retry
+    assert final["answered"] is True
+    assert "1,500" not in final["answer"] and "20,000" in final["answer"] and "admissions@" in final["answer"]
+    assert events[-1] == {"type": "replace", "text": final["answer"]}
+
+
+def test_fee_period_must_match_the_source():
+    sem = "UNDERGRADUATE (UG): S.No; Programme; 2026-27 (Sem-1)\nUNDERGRADUATE (UG): 1; B.S.(BCA); 31,250"
+    assert check_answer("The BCA fee for 2026-27 is ₹31,250 for Semester 1.", sem).ok
+    fc = check_answer("The BCA fee is ₹31,250 per year.", sem)
+    assert not fc.ok and "per year" in fc.unsupported
+    assert not check_answer("BCA costs ₹31,250 annually.", sem).ok
+    assert check_answer("The B.Com fee is Rs. 20,000 per year.", CONTEXT).ok  # the source says per year
+    assert check_answer("Admissions open every year in May.", "Admissions open every year in May.").ok
+
+
+@pytest.mark.parametrize("answer, wrong, kept", [
+    # a wrong period is removed, the checked amount stays
+    ("The total approved fee for B.S. (BCA) is ₹31,250 per year.\n* Library: ₹1,000",
+     ["per year"], "The total approved fee for B.S. (BCA) is ₹31,250.\n* Library: ₹1,000"),
+    # a wrong figure in running text drops only its sentence, never splitting at "B.S." or "M.Sc."
+    ("The M.Sc. AI fee is ₹50,000 for Sem-1. The library fee is ₹1,500.", ["1,500"],
+     "The M.Sc. AI fee is ₹50,000 for Sem-1."),
+    # a wrong bullet is dropped
+    ("BCA fee: ₹31,250.\n* Misc & Library: ₹1,500\n* Society: ₹1,600", ["1,500"], "BCA fee: ₹31,250.\n* Society: ₹1,600"),
+    # nothing real left
+    ("The BCA fee is ₹99,999.", ["99,999"], ""),
+])
+def test_drop_unsupported_lines(answer, wrong, kept):
+    from app.rag.factcheck import drop_unsupported_lines
+
+    assert drop_unsupported_lines(answer, wrong) == kept
+
+
 def test_fact_check_understands_short_academic_years():
     ctx = "Scholarships for the academic year 2024-25 are listed below."
     assert check_answer("Scholarships for 2024-2025 are available.", ctx).ok

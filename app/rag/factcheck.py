@@ -16,6 +16,11 @@ PHONE = re.compile(r"(?<!\w)\+?\d[\d \-–]{7,}\d(?!\w)")
 AMOUNT = re.compile(r"(?:₹|rs\.?|inr)\s*([\d,]+(?:\.\d+)?)", re.I)
 NUMBER = re.compile(r"(?<![\w.])\d{1,3}(?:,\d{2,3})+(?:\.\d+)?|(?<![\w.,])\d{3,}(?:\.\d+)?(?![\w])")
 
+FEE_PERIODS = {
+    "year": re.compile(r"\b(per (year|annum)|p\.\s?a\.|annual(ly)?|yearly|a year|/\s?year|each year|every year)\b", re.I),
+    "month": re.compile(r"\b(per month|monthly|a month|/\s?month|each month)\b", re.I),
+}
+AMOUNT_OR_NUMBER = re.compile(r"(?:₹|rs\.?|inr)\s*\d|\d{1,3},\d{3}", re.I)
 ACADEMIC_YEAR = re.compile(r"\b(20\d{2})\s*[-–/]\s*(\d{2})\b")
 
 # Dates are checked as whole dates (day + month + year), not as loose numbers: otherwise "26–29 June 2026"
@@ -89,7 +94,45 @@ def check_answer(answer: str, context: str, question: str = "") -> FactCheck:
     for text, keys in find_dates(answer_wo_links):
         if not all(_date_supported(k, ev_dates) for k in keys):
             unsupported.append(text)
+    # A fee period the sources never use: small models turn "Sem-1: 31,250" into "31,250 per year".
+    for pattern in FEE_PERIODS.values():
+        m = pattern.search(answer)
+        if m and AMOUNT_OR_NUMBER.search(answer) and not pattern.search(evidence):
+            unsupported.append(m.group(0))
     return FactCheck(ok=not unsupported, unsupported=list(dict.fromkeys(unsupported)))
+
+
+_BULLET = re.compile(r"^\s*([-*•]|\d+[.)])\s")
+# A sentence ends after a lower-case word or a figure, not after "B.S." / "M.Sc." / "Dr."
+_SENTENCE_END = re.compile(r"(?<=[a-z0-9)\]*][.!?])(?<!\b[A-Z][a-z]\.)\s+")
+_INTRO_ONLY = re.compile(r"^\W*(this (includes|is made up of|consists of)|the breakdown|breakdown|details|including)\b.{0,40}:\s*$",
+                         re.I)
+
+
+def drop_unsupported_lines(answer: str, unsupported: list[str]) -> str:
+    """The answer without the bullets / sentences that contain an unsupported fact, or "" when what is left is
+    not a real answer. Used when a retry still got a figure wrong: the checked parts are kept."""
+    # A wrong fee period ("per year") is just words: remove them and keep the amount, which was checked.
+    periods = [u for u in unsupported if any(p.fullmatch(u) for p in FEE_PERIODS.values())]
+    for u in periods:
+        answer = re.sub(rf"[ \t]*\(?\b{re.escape(u)}\b\)?", "", answer)
+    unsupported = [u for u in unsupported if u not in periods]
+
+    def bad(text: str) -> bool:
+        return any(u in text for u in unsupported)
+
+    kept = []
+    for line in answer.splitlines():
+        if not bad(line):
+            kept.append(line)
+        elif not _BULLET.match(line):  # running text: drop only the wrong sentences
+            rest = " ".join(x for x in _SENTENCE_END.split(line) if not bad(x)).strip()
+            if rest:
+                kept.append(rest)
+    text = "\n".join(kept).strip()
+    if not re.search(r"\d", text) and len(text) < 80:
+        return ""  # nothing substantial survived (the wrong figure *was* the answer)
+    return "" if _INTRO_ONLY.match(text) else text
 
 
 def _date(day: str | None, month: int, year: str | None) -> DateKey | None:

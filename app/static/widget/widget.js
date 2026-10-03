@@ -702,7 +702,11 @@ svg { width: 20px; height: 20px; fill: none; stroke: currentColor; stroke-width:
           if (done) break;
           buf = parseSSE(buf + dec.decode(value, { stream: true }), (ev, data) => {
             if (ev === "token") { a.text += data.text || ""; started = true; show(); }
-            else if (ev === "replace") { a.text = data.text || ""; started = true; show(); }
+            else if (ev === "replace") {
+              a.text = data.text || "";
+              started = !!a.text; // empty: the answer is being redone, so show the next status line again
+              if (started) show(); else { a.pending = true; bubble.replaceChildren(statusNode("Checking the answer…")); }
+            }
             else if (ev === "status" && !started) { bubble.replaceChildren(statusNode(data.text)); }
             else if (ev === "sources") { a.sources = data.sources || []; }
             else if (ev === "language") {
