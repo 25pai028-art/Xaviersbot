@@ -1,9 +1,10 @@
 """Command-line deep crawler with a live progress display.
 
-    python -m scripts.crawl                 # full incremental crawl: crawl → clean → index
+    python -m scripts.crawl                 # full incremental crawl: crawl → clean → index → OCR scans → index
     python -m scripts.crawl --max-pages 50  # quick test run
-    python -m scripts.crawl --no-index      # crawl + clean only (fast; index later)
+    python -m scripts.crawl --no-index      # crawl + clean only (fast; index later; scans stay pending)
     python -m scripts.crawl --index-only    # index whatever is pending (resume after an interruption)
+    python -m scripts.crawl --ocr-only      # OCR the scanned PDFs/images left by the crawl, then index them
     python -m scripts.crawl --reindex       # re-extract, re-chunk and re-embed everything
     python -m scripts.crawl --url URL       # crawl/index a single URL
     python -m scripts.crawl --stats         # show what is indexed
@@ -49,6 +50,9 @@ def render(stats: CrawlStats, max_pages: int) -> Table:
     t.add_row("2. Clean", f"{stats.boilerplate_lines} repeated site-wide lines removed")
     t.add_row("3. Index", f"{_bar(stats.indexed, stats.to_index)}  {stats.indexed}/{stats.to_index} sources, "
                           f"{stats.chunks_written} chunks, {stats.empty} empty, {stats.duplicates} duplicates")
+    if stats.ocr_total or stats.ocr_deferred:
+        t.add_row("4. Scanned (OCR)", f"{_bar(stats.ocr_done, stats.ocr_total)}  {stats.ocr_done}/{stats.ocr_total} read"
+                                      + (f", {stats.ocr_deferred} left for later by this crawl" if stats.ocr_deferred else ""))
     t.add_row("Current", (stats.current or "")[-100:])
     return t
 
@@ -68,6 +72,9 @@ def show_stats() -> None:
             t.add_row(ctype, status, str(n), str(chunks or 0))
         console.print(t)
         console.print(f"Vector store chunks: {vectorstore.count()}")
+        scans = db.scalar(select(func.count()).where(Source.ocr_pending.is_(True), Source.status == "active"))
+        if scans:
+            console.print(f"Scanned documents waiting for OCR: {scans} (run `python -m scripts.crawl --ocr-only`)")
         if errors:
             console.print("\n[bold]Latest crawl errors[/bold]")
             for e in errors:
@@ -82,6 +89,8 @@ def main() -> None:
                     help="re-extract, re-chunk and re-embed everything (after changing extraction/chunk settings)")
     ap.add_argument("--no-index", action="store_true", help="crawl and clean only; index later with --index-only")
     ap.add_argument("--index-only", action="store_true", help="skip crawling; index pending sources")
+    ap.add_argument("--ocr-only", action="store_true",
+                    help="skip crawling; OCR scanned documents the crawl left for later, then index them")
     ap.add_argument("--stats", action="store_true", help="show index statistics and exit")
     ap.add_argument("-v", "--verbose", action="store_true")
     args = ap.parse_args()
@@ -115,7 +124,8 @@ def main() -> None:
                       on_progress=lambda s: live.update(render(s, settings.crawl_max_pages)))
     with live:
         try:
-            stats = crawler.run(crawl=not args.index_only, index=not args.no_index)
+            stats = crawler.run(crawl=not (args.index_only or args.ocr_only), index=not args.no_index,
+                                ocr=not (args.no_index or args.index_only))
         except KeyboardInterrupt:
             crawler.stop_event.set()
             stats = crawler.stats

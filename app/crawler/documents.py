@@ -23,6 +23,7 @@ class ExtractedDoc:
     ocr_used: bool = False
     pages: int = 0
     links: list[str] = field(default_factory=list)  # URLs linked from inside the document
+    needs_ocr: bool = False  # read without OCR, but has scanned pages: OCR it later for the full text
 
 
 def sanitize_text(text: str) -> str:
@@ -96,7 +97,7 @@ def ocr_image(image) -> str:  # PIL.Image
         return ""
 
 
-def extract_image(data: bytes) -> ExtractedDoc:
+def extract_image(data: bytes, ocr: bool = True) -> ExtractedDoc:
     from PIL import Image
 
     with Image.open(io.BytesIO(data)) as img:  # opening reads only the header, not the pixels
@@ -107,6 +108,8 @@ def extract_image(data: bytes) -> ExtractedDoc:
             if img.width * img.height > MAX_IMAGE_PIXELS:
                 log.info("Image too large to OCR (%sx%s), skipped", img.width, img.height)
                 return ExtractedDoc(text="")
+        if not ocr:
+            return ExtractedDoc(text="", needs_ocr=True)
         text = ocr_image(img)
     text = sanitize_text(text)
     # Discard OCR noise from photos (few real words).
@@ -156,7 +159,7 @@ def _quiet_mupdf(fitz) -> None:
     fitz.TOOLS.mupdf_display_warnings(False)
 
 
-def extract_pdf(data: bytes) -> ExtractedDoc:
+def extract_pdf(data: bytes, ocr: bool = True) -> ExtractedDoc:
     import pymupdf as fitz
 
     _quiet_mupdf(fitz)
@@ -165,7 +168,7 @@ def extract_pdf(data: bytes) -> ExtractedDoc:
     doc = fitz.open(stream=data, filetype="pdf")
     parts: list[str] = []
     links: list[str] = []
-    ocr_used = False
+    ocr_used = needs_ocr = False
     ocr_pages = 0
     title = (doc.metadata or {}).get("title", "") or ""
     for page in doc:
@@ -183,7 +186,11 @@ def extract_pdf(data: bytes) -> ExtractedDoc:
             text = page.get_text("text")
         # Scanned (little text, has images), or text was drawn but none of it could be decoded (has fonts).
         no_text = (len(text.strip()) < 30 and page.get_images()) or (not text.strip() and page.get_fonts())
-        if (no_text or _unreadable(text)) and ocr_pages < settings.crawl_ocr_max_pages:
+        scanned = no_text or _unreadable(text)
+        if scanned and not ocr:
+            needs_ocr = True
+            text = ""  # undecodable glyphs are noise; the OCR pass reads this page later
+        elif scanned and ocr_pages < settings.crawl_ocr_max_pages:
             # Scanned page, or text in a font MuPDF can't decode → render the page and OCR what's visible.
             from PIL import Image
 
@@ -198,6 +205,8 @@ def extract_pdf(data: bytes) -> ExtractedDoc:
             del img
             ocr_used = ocr_used or bool(text.strip())
             ocr_pages += 1
+        elif scanned:
+            text = ""
         parts.append(text)
     pages = doc.page_count
     doc.close()
@@ -206,7 +215,7 @@ def extract_pdf(data: bytes) -> ExtractedDoc:
         log.info("PDF reader reported %d problems (e.g. %r)%s", len(warnings), warnings[0][:120],
                  "; unreadable pages were OCR'd" if ocr_used else "")
     return ExtractedDoc(text=sanitize_text("\n\n".join(parts)), title=title.strip(), ocr_used=ocr_used, pages=pages,
-                        links=list(dict.fromkeys(links)))
+                        links=list(dict.fromkeys(links)), needs_ocr=needs_ocr)
 
 
 # ---------------------------------------------------------------- DOCX / TXT
@@ -257,12 +266,13 @@ def sniff_type(data: bytes) -> str | None:
     return None
 
 
-def extract_document(data: bytes, kind: str) -> ExtractedDoc:
+def extract_document(data: bytes, kind: str, ocr: bool = True) -> ExtractedDoc:
+    """`ocr=False` skips the slow OCR of scanned pages and images and sets `needs_ocr` instead."""
     real = sniff_type(data) or kind
     if real == "pdf":
-        return extract_pdf(data)
+        return extract_pdf(data, ocr)
     if real == "docx":
         return extract_docx(data)
     if real == "image":
-        return extract_image(data)
+        return extract_image(data, ocr)
     return extract_txt(data)

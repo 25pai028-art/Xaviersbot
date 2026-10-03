@@ -93,9 +93,14 @@ class Settings(BaseSettings):
     crawl_max_pages: int = 5000
     crawl_max_depth: int = 6
     crawl_max_file_mb: float = 25.0
-    crawl_delay_seconds: float = 1.0
+    # Downloads run in parallel (at most CRAWL_CONCURRENCY at once), and requests to the same host start at
+    # least CRAWL_DELAY_SECONDS apart, so the college server sees at most 1/delay requests per second.
+    crawl_concurrency: int = 4
+    crawl_delay_seconds: float = 0.25
     crawl_timeout_seconds: float = 30.0
-    crawl_min_upload_year: int = 2022
+    # Uploads (wp-content/uploads/YYYY/) older than this are not crawled: old notices are hidden from answers
+    # anyway. Lower it if older documents that are still valid (syllabi, rules) are missing.
+    crawl_min_upload_year: int = 2025
     crawl_user_agent: str = "SXCA-Chatbot-Crawler/1.0 (+https://sxca.edu.in/; official college assistant)"
     crawl_use_playwright: bool = True
     crawl_playwright_min_chars: int = 200
@@ -103,6 +108,9 @@ class Settings(BaseSettings):
     # Google Drive folder, so it survives a runtime that crashed.
     crawl_state_dir: str = ""
     crawl_ocr_max_pages: int = 15  # scanned pages OCR'd per document (the important part is usually first)
+    # Read scanned PDFs and image notices (slow OCR) in a separate pass after everything else is indexed,
+    # so the chatbot is usable sooner. False: OCR them during the crawl.
+    crawl_defer_ocr: bool = True
     ocr_languages: str = "eng+hin+guj"
     tesseract_cmd: str = ""
 

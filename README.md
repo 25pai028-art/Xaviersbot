@@ -59,9 +59,12 @@ Everything runs CPU-only. Plan for about **10 GB of disk** for models (LLM 3.4 G
 | Command | What it does |
 |---|---|
 | `python -m scripts.crawl --max-pages 50` | Quick smoke test (a few minutes) |
-| `python -m scripts.crawl` | Full deep crawl: crawl, clean, index (hours on CPU: ~3,000 PDFs) |
-| `python -m scripts.crawl --no-index` | Crawl and clean only (network-bound, much faster). Index later. |
+| `python -m scripts.crawl` | Full deep crawl: crawl, clean, index, then OCR the scanned documents and index those (hours on CPU) |
+| `python -m scripts.crawl --no-index` | Crawl and clean only (network-bound, much faster). Index later. Scans stay pending. |
 | `python -m scripts.crawl --index-only` | Index whatever is pending, e.g. after stopping a run with Ctrl+C |
+| `python -m scripts.crawl --ocr-only` | OCR the scanned PDFs and image notices the crawl left for later, then index them |
+
+Downloads run 4 at a time (`CRAWL_CONCURRENCY`), with requests to one host at least `CRAWL_DELAY_SECONDS` (0.25 s) apart. Scanned documents are read last (`CRAWL_DEFER_OCR`), so everything else is searchable sooner. A file that hasn't changed since the last crawl is not read again.
 | `python -m scripts.crawl --reindex` | Re-extract and re-embed everything (after changing extraction or chunk settings) |
 | `python -m scripts.crawl --stats` | What is indexed, plus the latest errors |
 | `python -m scripts.crawl --url https://sxca.edu.in/admissions/tuition-fees/` | Crawl one URL |

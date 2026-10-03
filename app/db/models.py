@@ -59,6 +59,8 @@ class Source(Base):
     error: Mapped[str | None] = mapped_column(Text, nullable=True)
     chunk_count: Mapped[int] = mapped_column(Integer, default=0)
     ocr_used: Mapped[bool] = mapped_column(default=False)
+    ocr_pending: Mapped[bool] = mapped_column(default=False)  # has scanned pages not OCR'd yet (deferred OCR)
+    file_hash: Mapped[str | None] = mapped_column(String(64), nullable=True)  # downloaded bytes: skip re-reading
     first_seen_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
     last_crawled_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     last_changed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)

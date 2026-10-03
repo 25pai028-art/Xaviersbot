@@ -3,6 +3,7 @@ and an optional Playwright fallback for JavaScript-rendered pages."""
 from __future__ import annotations
 
 import logging
+import threading
 import time
 import urllib.robotparser
 from dataclasses import dataclass
@@ -51,6 +52,7 @@ class Fetcher:
         )
         self._robots: dict[str, urllib.robotparser.RobotFileParser | None] = {}
         self._last_hit: dict[str, float] = {}
+        self._turn_lock = threading.Lock()  # fetch() is called from several download threads
         self._browser = None
         self._playwright = None
         self._browser_broken = False
@@ -76,12 +78,13 @@ class Fetcher:
         return True if rp is None else rp.can_fetch(self.settings.crawl_user_agent, url)
 
     def _wait_turn(self, host: str) -> None:
-        last = self._last_hit.get(host)
-        if last is not None:
-            gap = self.settings.crawl_delay_seconds - (time.monotonic() - last)
-            if gap > 0:
-                time.sleep(gap)
-        self._last_hit[host] = time.monotonic()
+        """Requests to one host start at least `crawl_delay_seconds` apart, whichever thread sends them."""
+        with self._turn_lock:
+            now = time.monotonic()
+            start = max(now, self._last_hit.get(host, -1e9) + self.settings.crawl_delay_seconds)
+            self._last_hit[host] = start  # reserve the slot, then wait outside the lock
+        if start > now:
+            time.sleep(start - now)
 
     # ------------------------------------------------------------ fetching
     def fetch(self, url: str, *, etag: str | None = None, last_modified: str | None = None) -> FetchResult:

@@ -1,14 +1,16 @@
 """Deep-crawl pipeline, in three stages:
 
 1. CRAWL  – discover URLs (sitemaps, WordPress REST API, every link on every page,
-            iframes / PDF viewers / onclick targets, links inside PDFs), fetch them
-            politely, render JavaScript pages with Chromium when needed, and extract
-            clean text from HTML, PDF, DOCX and images (OCR). Only changed content is
-            marked for indexing (content hash, HTTP 304, WordPress `modified` date).
+            iframes / PDF viewers / onclick targets, links inside PDFs), download them
+            politely and in parallel, render JavaScript pages with Chromium when needed,
+            and extract clean text from HTML, PDF and DOCX. Only changed content is
+            marked for indexing (content hash, file hash, HTTP 304, WordPress `modified` date).
 2. CLEAN  – remove text repeated across many pages (site-wide boilerplate), keeping
             one copy in a "common site information" source.
 3. INDEX  – skip empty and duplicate documents, chunk (heading- and section-aware),
             embed with bge-m3 in batches and store in ChromaDB.
+4. OCR    – scanned PDFs and image notices (slow) are read last, then indexed, so
+            everything else is searchable sooner (`CRAWL_DEFER_OCR`; `ocr_pending`).
 
 Stages 2–3 work from the database, so an interrupted run resumes indexing where it
 stopped (`index_status = "pending"`). Errors are logged per URL and never stop the crawl.
@@ -21,6 +23,7 @@ import os
 import re
 import threading
 from collections import Counter, deque
+from concurrent.futures import Future, ThreadPoolExecutor
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Callable
@@ -55,6 +58,7 @@ CONTENT_TYPE_KIND = {
 }
 MIN_TEXT_CHARS = 40
 INDEX_BATCH_SOURCES = 16
+RENDER_PROBES = 5  # browser renders per host that must add text before rendering that host is given up
 GENERIC_LINK_TEXT = re.compile(
     r"^(click here|here|download|view|view pdf|pdf|read more|know more|more|open|link|file|document|notice|"
     r"circular|details|view details|see more|image|jpg|png)\W*$", re.I)
@@ -87,6 +91,9 @@ class CrawlStats:
     empty: int = 0
     duplicates: int = 0
     chunks_written: int = 0
+    ocr_deferred: int = 0  # documents with scanned pages left for the OCR stage
+    ocr_total: int = 0
+    ocr_done: int = 0
     queued: int = 0
     current: str = ""
     limit_reached: bool = False
@@ -127,6 +134,14 @@ def choose_document_title(url: str, *, link_text: str | None, api_title: str | N
         if good(cand):
             return cand[:300]
     return title_from_url(url)
+
+
+@dataclass
+class _Plan:
+    """What to download for one queued URL. `fetch_url=None`: nothing to download (already dealt with)."""
+    fetch_url: str | None = None
+    existing: tuple | None = None  # (id, remote_modified, etag, last_modified_header, file_hash)
+    conditional: bool = False
 
 
 class CrashGuard:
@@ -181,11 +196,13 @@ class Crawler:
         self._seen: set[str] = set()
         self._queued: dict[str, QueueItem] = {}  # not yet processed, so link context can still be improved
         self._page_context: dict[str, str] = {}  # page url -> "Section › Title" (section for linked documents)
+        self._renders: dict[str, list[int]] = {}  # host -> [browser renders tried, renders that added text]
         self._ocr_ok = ocr_available()[0]
+        self.defer_ocr = self.s.crawl_defer_ocr
         self.guard = CrashGuard(Path(self.s.crawl_state_dir) if self.s.crawl_state_dir else self.s.data_dir)
 
     # ================================================================ public entry points
-    def run(self, crawl: bool = True, index: bool = True) -> CrawlStats:
+    def run(self, crawl: bool = True, index: bool = True, ocr: bool = True) -> CrawlStats:
         with session_scope() as db:
             run = CrawlRun(trigger=self.trigger)
             db.add(run)
@@ -203,8 +220,13 @@ class Crawler:
                 self._clean_stage()
             if index and not self.stop_event.is_set():
                 self._index_stage()
+                self.reindex = False  # done; the OCR stage below only indexes what it changes
             if crawl and not self.stop_event.is_set() and not self.stats.limit_reached:
                 self._cleanup_removed()
+            if ocr and not self.stop_event.is_set():
+                self._ocr_stage()
+                if index and not self.stop_event.is_set():
+                    self._index_stage()
             if self.stop_event.is_set():
                 status = "stopped"
         except KeyboardInterrupt:
@@ -276,39 +298,57 @@ class Crawler:
         self.stats.phase = "discovering"
         self._seed()
         self.stats.phase = "crawling"
-        # Pages before documents: pages supply the link text / parent page that titles each document.
-        while (self._pages or self._docs) and not self.stop_event.is_set():
-            if self.stats.processed >= self.s.crawl_max_pages:
-                self.stats.limit_reached = True
-                self.stats.notes.append(f"Stopped at CRAWL_MAX_PAGES={self.s.crawl_max_pages}")
-                break
-            item = self._pages.popleft() if self._pages else self._docs.popleft()
-            self._queued.pop(item.url, None)
-            self.stats.queued = len(self._pages) + len(self._docs)
-            self.stats.current = item.url
-            self.on_progress(self.stats)
-            if item.url in self.guard.skip:  # crashed a previous crawl
-                self.stats.skipped += 1
+        workers = max(1, self.s.crawl_concurrency)
+        pool = ThreadPoolExecutor(max_workers=workers, thread_name_prefix="crawl-download")
+        # Downloads run ahead in the pool. Extracting, storing and following links happen here, one URL at a
+        # time in queue order (pages before documents: pages supply the link text that titles a document).
+        inflight: deque[tuple[QueueItem, _Plan, Future | None]] = deque()
+        try:
+            while not self.stop_event.is_set():
+                while (len(inflight) < workers and (self._pages or self._docs)
+                       and self.stats.processed + len(inflight) < self.s.crawl_max_pages):
+                    item = self._pages.popleft() if self._pages else self._docs.popleft()
+                    try:
+                        plan = self._plan(item)
+                    except Exception as e:
+                        log.exception("Failed preparing %s", item.url)
+                        self._error(item.url, f"{type(e).__name__}: {e}")
+                        plan = _Plan()
+                    inflight.append((item, plan, pool.submit(self._download, plan) if plan.fetch_url else None))
+                if not inflight:
+                    if self._pages or self._docs:
+                        self.stats.limit_reached = True
+                        self.stats.notes.append(f"Stopped at CRAWL_MAX_PAGES={self.s.crawl_max_pages}")
+                    break
+                item, plan, download = inflight.popleft()
+                self._queued.pop(item.url, None)
+                self.stats.queued = len(self._pages) + len(self._docs) + len(inflight)
+                self.stats.current = item.url
+                self.on_progress(self.stats)
+                if download is not None:
+                    self.guard.start(item.url)
+                    try:
+                        self._handle(item, plan, download.result())
+                    except Exception as e:  # never let one URL kill the crawl
+                        log.exception("Failed processing %s", item.url)
+                        self._error(item.url, f"{type(e).__name__}: {e}")
+                    finally:
+                        self.guard.done()
                 self.stats.processed += 1
-                continue
-            self.guard.start(item.url)
-            try:
-                self._process(item)
-            except Exception as e:  # never let one URL kill the crawl
-                log.exception("Failed processing %s", item.url)
-                self._error(item.url, f"{type(e).__name__}: {e}")
-            finally:
-                self.guard.done()
-            self.stats.processed += 1
+        finally:
+            pool.shutdown(wait=False, cancel_futures=True)
 
-    def _process(self, item: QueueItem) -> None:
+    def _plan(self, item: QueueItem) -> _Plan:
+        """Checks that need no download (crash list, robots.txt, admin block, WordPress date unchanged)."""
         url = item.url
+        if url in self.guard.skip:  # crashed a previous crawl
+            self.stats.skipped += 1
+            return _Plan()
         kind = classify(url)
-        fetch_url = google_drive_download_url(url) if kind == "drive" else url
         if kind != "drive" and not self.fetcher.allowed_by_robots(url):
             self.stats.skipped += 1
             self._note_once(f"robots.txt disallows crawling {host_of(url)}")
-            return
+            return _Plan()
 
         with session_scope() as db:
             existing = db.scalar(select(Source).where(Source.url == url))
@@ -316,18 +356,45 @@ class Crawler:
             if existing:
                 if existing.status == "blocked":  # an admin removed it: never fetch or index it again
                     self.stats.skipped += 1
-                    return
-                existing_info = (existing.id, existing.remote_modified, existing.etag, existing.last_modified_header)
+                    return _Plan()
+                existing_info = (existing.id, existing.remote_modified, existing.etag, existing.last_modified_header,
+                                 existing.file_hash)
 
-        conditional = existing_info and kind != "html" and not self.reindex
+        conditional = bool(existing_info and kind != "html" and not self.reindex)
         # Documents: skip the download entirely when WordPress says nothing changed.
         if conditional and item.remote_modified and existing_info[1] == item.remote_modified:
             self._touch(existing_info[0], item)
             self.stats.unchanged += 1
-            return
+            return _Plan()
+        return _Plan(fetch_url=google_drive_download_url(url) if kind == "drive" else url,
+                     existing=existing_info, conditional=conditional)
 
-        res = self.fetcher.fetch(fetch_url, etag=existing_info[2] if conditional else None,
-                                 last_modified=existing_info[3] if conditional else None)
+    def _rendering_helps(self, url: str) -> bool:
+        """A browser render costs ~5 s. Most sites (sxca.edu.in is plain WordPress) send all their text in the
+        HTML, and a short page is simply short; so after RENDER_PROBES renders on a host that added no text,
+        stop rendering that host's pages."""
+        tried, helped = self._renders.setdefault(host_of(url), [0, 0])
+        if helped or tried < RENDER_PROBES:
+            self._renders[host_of(url)][0] += 1
+            return True
+        return False
+
+    def _download(self, plan: _Plan):
+        """Runs in a download thread: network only, no database or shared state."""
+        cond = plan.conditional
+        return self.fetcher.fetch(plan.fetch_url, etag=plan.existing[2] if cond else None,
+                                  last_modified=plan.existing[3] if cond else None)
+
+    def _process(self, item: QueueItem) -> None:
+        """One URL from start to finish, without the download pool (single-URL crawls)."""
+        plan = self._plan(item)
+        if plan.fetch_url:
+            self._handle(item, plan, self._download(plan))
+
+    def _handle(self, item: QueueItem, plan: _Plan, res) -> None:
+        url = item.url
+        kind = classify(url)
+        existing_info = plan.existing
         if res.not_modified and existing_info:
             self._touch(existing_info[0], item)
             self.stats.unchanged += 1
@@ -351,14 +418,22 @@ class Crawler:
             self.stats.skipped += 1  # only public Drive PDFs
             return
 
+        # Same file as last time (server sent no 304): nothing to re-read, which matters for scanned PDFs.
+        file_hash = hashlib.sha256(res.content).hexdigest() if real_kind != "html" else None
+        if file_hash and existing_info and existing_info[4] == file_hash and not self.reindex:
+            self._touch(existing_info[0], item)
+            self.stats.unchanged += 1
+            return
+
         meta_date = item.remote_modified
-        ocr_used = False
+        ocr_used = ocr_pending = False
         if real_kind == "html":
             page = extract_html(res.text, final)
-            if len(page.text) < self.s.crawl_playwright_min_chars:
+            if len(page.text) < self.s.crawl_playwright_min_chars and self._rendering_helps(final):
                 rendered = self.fetcher.render_with_browser(final)  # JavaScript-built content
                 if rendered:
                     page2 = extract_html(rendered, final)
+                    self._renders[host_of(final)][1] += len(page2.text) > len(page.text) + 20
                     if len(page2.text) > len(page.text):
                         page = page2
                     known = {u for u, _ in page.links}
@@ -373,8 +448,10 @@ class Crawler:
                 for link, anchor in page.links:
                     self._enqueue(QueueItem(url=link, depth=item.depth + 1, parent_url=final, link_text=anchor))
         elif real_kind in ("pdf", "docx", "txt", "image"):
-            doc = extract_document(res.content, real_kind)
+            doc = extract_document(res.content, real_kind, ocr=not self.defer_ocr)
             text, ocr_used, footer = doc.text, doc.ocr_used, ""
+            ocr_pending = doc.needs_ocr and self._ocr_ok
+            self.stats.ocr_deferred += ocr_pending
             title = choose_document_title(url, link_text=item.link_text, api_title=item.title, doc_title=doc.title)
             section = self._page_context.get(item.parent_url or "", "")
             for link in doc.links:  # links inside PDFs lead deeper too
@@ -386,10 +463,12 @@ class Crawler:
             return
 
         self._store(url=url, kind=real_kind, title=title, section=section, item=item, text=text, footer=footer,
-                    meta_date=meta_date, etag=res.etag, last_modified=res.last_modified, ocr_used=ocr_used)
+                    meta_date=meta_date, etag=res.etag, last_modified=res.last_modified, ocr_used=ocr_used,
+                    ocr_pending=ocr_pending, file_hash=file_hash)
 
     def _store(self, *, url: str, kind: str, title: str, section: str, item: QueueItem, text: str, footer: str,
-               meta_date: str | None, etag: str | None, last_modified: str | None, ocr_used: bool) -> None:
+               meta_date: str | None, etag: str | None, last_modified: str | None, ocr_used: bool,
+               ocr_pending: bool = False, file_hash: str | None = None) -> None:
         now = utcnow()
         h = text_hash(text) if text else ""
         with session_scope() as db:
@@ -403,6 +482,7 @@ class Crawler:
             src.content_type = kind
             src.remote_modified = item.remote_modified or src.remote_modified
             src.etag, src.last_modified_header = etag, last_modified
+            src.file_hash = file_hash
             src.parent_url = item.parent_url or src.parent_url
             src.link_text = (item.link_text or src.link_text or "")[:500] or None
             src.last_crawled_at = now
@@ -421,6 +501,7 @@ class Crawler:
             src.published_at = best_date(meta=meta_date, url=url, text=text)
             src.academic_year = find_academic_year(title, url, text)
             src.ocr_used = ocr_used
+            src.ocr_pending = ocr_pending
             src.last_changed_at = now
             src.index_status = "pending"
             self.stats.new += is_new
@@ -508,6 +589,55 @@ class Crawler:
                 self.stats.indexed += len(batch)
                 self.on_progress(self.stats)
 
+    # ================================================================ stage 4: OCR
+    def _ocr_stage(self) -> None:
+        """Scanned PDFs and image notices that the crawl read without OCR: download again, OCR, and mark changed
+        text for indexing. One document at a time (OCR is CPU- and memory-heavy); the crash guard covers it."""
+        if not self._ocr_ok:
+            return
+        with session_scope() as db:
+            todo = db.execute(select(Source.id, Source.url, Source.content_type).where(
+                Source.ocr_pending.is_(True), Source.status == "active").order_by(Source.id)).all()
+        self.stats.phase = "reading scanned documents"
+        self.stats.ocr_total = len(todo)
+        self.on_progress(self.stats)
+        for sid, url, ctype in todo:
+            if self.stop_event.is_set():
+                return  # the rest stay pending for the next run
+            self.stats.current = url
+            self.on_progress(self.stats)
+            if url in self.guard.skip:
+                self.stats.ocr_done += 1
+                continue
+            self.guard.start(url)
+            try:
+                res = self.fetcher.fetch(google_drive_download_url(url) if is_google_drive(url) else url)
+                if not res.ok:
+                    self._error(url, f"OCR pass: {res.error or f'HTTP {res.status}'}")
+                    continue
+                doc = extract_document(res.content, ctype or "pdf", ocr=True)
+                with session_scope() as db:
+                    src = db.get(Source, sid)
+                    if src is None:
+                        continue
+                    src.ocr_pending = False
+                    src.file_hash = hashlib.sha256(res.content).hexdigest()
+                    if doc.text and text_hash(doc.text) != src.content_hash:
+                        src.raw_text = src.text = doc.text
+                        src.content_hash = text_hash(doc.text)
+                        src.ocr_used = doc.ocr_used
+                        src.language = detect_script_language(doc.text)
+                        src.published_at = best_date(meta=src.remote_modified, url=url, text=doc.text)
+                        src.academic_year = find_academic_year(src.title or "", url, doc.text)
+                        src.last_changed_at = utcnow()
+                        src.index_status = "pending"
+            except Exception as e:
+                log.exception("OCR pass failed for %s", url)
+                self._error(url, f"OCR pass: {type(e).__name__}: {e}")
+            finally:
+                self.guard.done()
+                self.stats.ocr_done += 1
+
     @staticmethod
     def _mark(src: Source, status: str, duplicate_of: int | None = None) -> None:
         indexer.remove_source(src)
@@ -583,6 +713,7 @@ def crawl_single_url(url: str, trigger: str = "admin") -> CrawlStats:
         db.flush()
         crawler.run_id = run.id
     status = "completed"
+    crawler.defer_ocr = False  # one URL: read it completely now
     try:
         crawler._process(QueueItem(url=n, depth=crawler.s.crawl_max_depth))
         crawler._clean_stage()
