@@ -35,6 +35,9 @@ async def _warmup() -> None:
         from app.rag.embeddings import embed_query
 
         await asyncio.to_thread(embed_query, "warm up")
+        from app.rag.bm25 import bm25_index
+
+        await asyncio.to_thread(bm25_index.warmup)  # keyword index over all chunks
         await get_llm().warmup()
         log.info("Models loaded and ready")
         from app.i18n import translate

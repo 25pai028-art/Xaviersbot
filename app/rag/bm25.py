@@ -52,6 +52,10 @@ class BM25Index:
             self._ids, self._size = ids, size
             log.info("BM25 keyword index built over %d chunks", size)
 
+    def warmup(self) -> None:
+        """Build the index now (about 30 s for ~33,000 chunks on a laptop) instead of during the first question."""
+        self._ensure()
+
     def search(self, query: str, k: int) -> list[tuple[str, float]]:
         """[(chunk_id, bm25 score)] best first; only chunks sharing at least one query term."""
         self._ensure()
