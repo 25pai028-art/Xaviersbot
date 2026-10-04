@@ -12,7 +12,7 @@
   </select>
   <select name="status" aria-label="Status">
     <option value="">Any status</option>
-    {% for v, label in [("indexed","Indexed"),("pending","Waiting"),("processing","Processing"),("empty","No text"),("duplicate","Duplicate"),("blocked","Blocked"),("error","Error")] %}
+    {% for v, label in [("indexed","Indexed"),("pending","Waiting"),("processing","Processing"),("empty","No text"),("duplicate","Duplicate"),("excluded","Not searched: junk"),("superseded","Not searched: older edition"),("blocked","Blocked"),("error","Error")] %}
     <option value="{{ v }}" {% if status == v %}selected{% endif %}>{{ label }}</option>{% endfor %}
   </select>
   <button type="submit">Filter</button>

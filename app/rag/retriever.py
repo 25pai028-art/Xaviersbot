@@ -36,6 +36,10 @@ STALE_DAYS = 540  # ~18 months: old for fees/deadlines/events
 DROP_OLD_IF_NEWER_WITHIN_DAYS = 365  # drop stale sources when one this recent exists
 MAX_CHUNKS_PER_SOURCE = 2  # so one long page cannot fill every slot
 KEYWORD_WEIGHT = 0.15  # how much exact query-term coverage adds to the relevance grade
+# Ordinary questions: a college web page beats a PDF that ranks a few places higher (a hit found by both
+# vector and keyword search still wins by ~0.015). Pages are written for visitors; PDFs are often reports,
+# minutes or forms that merely mention the topic.
+PAGE_BONUS = 0.001
 
 
 @dataclass
@@ -130,7 +134,11 @@ def hybrid_search(query: str, query_embedding: list[float], k: int | None = None
         age = content_age_days(h.metadata)
         h.signals["age_days"] = None if age is None else int(age)
         fresh = recency(h.metadata, time_sensitive)
-        h.signals["rank_score"] = (h.signals["grade"] + weight * fresh) if time_sensitive else (rrf + weight * fresh)
+        if time_sensitive:
+            h.signals["rank_score"] = h.signals["grade"] + weight * fresh
+        else:
+            page = PAGE_BONUS if h.metadata.get("content_type") == "html" else 0.0
+            h.signals["rank_score"] = rrf + weight * fresh + page
         candidates.append(h)
 
     candidates.sort(key=lambda h: h.signals["rank_score"], reverse=True)

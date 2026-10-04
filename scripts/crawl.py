@@ -47,7 +47,8 @@ def render(stats: CrawlStats, max_pages: int) -> Table:
                           f"{stats.discovered} discovered")
     t.add_row("   new / updated / unchanged", f"{stats.new} / {stats.updated} / {stats.unchanged}")
     t.add_row("   skipped / errors / deleted", f"{stats.skipped} / {stats.errors} / {stats.deleted}")
-    t.add_row("2. Clean", f"{stats.boilerplate_lines} repeated site-wide lines removed")
+    t.add_row("2. Clean", f"{stats.boilerplate_lines} repeated site-wide lines removed; not searched: "
+                          f"{stats.excluded} junk, {stats.superseded} older editions")
     t.add_row("3. Index", f"{_bar(stats.indexed, stats.to_index)}  {stats.indexed}/{stats.to_index} sources, "
                           f"{stats.chunks_written} chunks, {stats.empty} empty, {stats.duplicates} duplicates")
     if stats.ocr_total or stats.ocr_deferred:

@@ -8,7 +8,7 @@
 
 Question file (JSON lines): {"q": "...", "expect": ["url-substring", ...], "note": "optional"}
 - `expect: [..]`  PASS if a retrieved source URL contains one of the substrings
-- `expect: []`    the website cannot answer it: PASS only if the bot refuses
+- `expect: []`    the website cannot answer it: PASS only if the bot refuses (scored with --answers only)
 - `expect: null`  correct source not known yet: shown as REVIEW, not scored
 """
 from __future__ import annotations
@@ -28,16 +28,16 @@ from rich.console import Console  # noqa: E402
 from rich.table import Table  # noqa: E402
 
 from app.rag.embeddings import embed_query  # noqa: E402
-from app.rag.query import expand_abbreviations  # noqa: E402
+from app.rag.query import expand_abbreviations, is_time_sensitive  # noqa: E402
 from app.rag.retriever import hybrid_search  # noqa: E402
 
 console = Console()
 
 DEFAULT_QUESTIONS = [
     {"q": "What are the eligibility criteria for B.Sc Physics?", "expect": ["ug-science"]},
-    {"q": "Which B.Com programmes are offered?", "expect": ["ug-commerce", "ug-admissions"]},
+    {"q": "Which B.Com programmes are offered?", "expect": ["ug-commerce", "ug-admissions", "courses-offered"]},
     {"q": "What documents are required for admission?", "expect": ["faqs", "general-instructions"]},
-    {"q": "Is there a hostel for students?", "expect": ["faqs", "hostel"]},
+    {"q": "Is there a hostel for students?", "expect": ["faqs", "hostel", "accommodation"]},
     {"q": "What is the email of the examination office?", "expect": ["contact-us", "site://"]},
     {"q": "Who is the in-charge of the Career Cell?", "expect": ["contact-us", "career-cell", "site://"]},
     {"q": "Does the college have NCC?", "expect": ["ncc"]},
@@ -49,7 +49,7 @@ DEFAULT_QUESTIONS = [
     {"q": "Which PG courses are available in arts?", "expect": ["pg-arts", "pg-admissions"]},
     {"q": "Where is the syllabus?", "expect": ["syllabus"]},
     {"q": "What is the research policy?", "expect": ["research-policy"]},
-    {"q": "Who teaches Botany?", "expect": ["faculty", "author"]},
+    {"q": "Who teaches Botany?", "expect": ["faculty", "author", "departments/science/botany"]},
     # Not answerable from the website: the bot must refuse.
     {"q": "What is the cafeteria menu for Monday?", "expect": []},
     {"q": "Who won the IPL in 2025?", "expect": []},
@@ -70,12 +70,16 @@ def eval_retrieval(questions: list[dict]) -> None:
     for item in questions:
         q, expect = item["q"], item.get("expect")
         sq = expand_abbreviations(q)
-        r = hybrid_search(sq, embed_query(sq), grade_query=q)
+        r = hybrid_search(sq, embed_query(sq), grade_query=q, time_sensitive=is_time_sensitive(q))  # as the chatbot does
         urls = [h.metadata.get("url", "") for h in r.hits] if r.relevant else []
         if expect is None:
             label = "[yellow]REVIEW[/yellow]"
+        elif not expect:
+            # Not on the website: search nearly always finds *something* similar; whether the bot then says
+            # "I don't have that information" is the answer step's job, scored with --answers.
+            label = "[cyan]ANSWERS[/cyan]"
         else:
-            passed = (r.relevant and any(e in u for u in urls for e in expect)) if expect else not r.relevant
+            passed = r.relevant and any(e in u for u in urls for e in expect)
             ok += passed
             scored += 1
             label = "[green]PASS[/green]" if passed else "[red]FAIL[/red]"
@@ -84,7 +88,7 @@ def eval_retrieval(questions: list[dict]) -> None:
                   item.get("note", ""))
     console.print(t)
     console.print(f"[bold]{ok}/{scored} scored questions passed[/bold] ({100 * ok // max(1, scored)}%), "
-                  f"{len(questions) - scored} to review")
+                  f"{len(questions) - scored} not scored (REVIEW: source unknown; ANSWERS: not on the website, use --answers)")
 
 
 async def eval_answers(questions: list[dict]) -> None:

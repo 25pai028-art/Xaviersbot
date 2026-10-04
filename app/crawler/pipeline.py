@@ -6,7 +6,8 @@
             and extract clean text from HTML, PDF and DOCX. Only changed content is
             marked for indexing (content hash, file hash, HTTP 304, WordPress `modified` date).
 2. CLEAN  – remove text repeated across many pages (site-wide boilerplate), keeping
-            one copy in a "common site information" source.
+            one copy in a "common site information" source; set aside documents that are
+            never searched: junk and older editions (`app.crawler.quality`).
 3. INDEX  – skip empty and duplicate documents, chunk (heading- and section-aware),
             embed with bge-m3 in batches and store in ChromaDB.
 4. OCR    – scanned PDFs and image notices (slow) are read last, then indexed, so
@@ -37,6 +38,7 @@ from app.crawler.boilerplate import (COMMON_SOURCE_TITLE, COMMON_SOURCE_URL, com
                                      site_information, strip_boilerplate)
 from app.crawler.documents import extract_document, ocr_available
 from app.crawler.extract_html import extract_html
+from app.crawler.quality import junk_reason, superseded_ids
 from app.crawler.fetcher import Fetcher
 from app.crawler.metadata import best_date, detect_script_language, find_academic_year
 from app.crawler.urls import (classify, domain_allowed, google_drive_download_url, host_of, is_google_drive,
@@ -86,6 +88,8 @@ class CrawlStats:
     errors: int = 0
     deleted: int = 0
     boilerplate_lines: int = 0
+    excluded: int = 0  # junk documents not searched
+    superseded: int = 0  # older editions not searched
     to_index: int = 0
     indexed: int = 0
     empty: int = 0
@@ -540,13 +544,37 @@ class Crawler:
                     common.content_hash = text_hash(common_text) if common_text else ""
                     common.index_status = "pending"
                     common.last_changed_at = common.published_at = utcnow()
+        self._set_aside_documents()
+
+    def _set_aside_documents(self) -> None:
+        """Junk (book catalogue, feedback forms, students' own reports) and older editions of yearly documents
+        stay in the database but are taken out of the search index; decided afresh on every run."""
+        self.stats.current = "setting aside junk and older editions"
+        self.on_progress(self.stats)
+        with session_scope() as db:
+            docs = db.scalars(select(Source).where(
+                Source.source_type == "website", Source.status == "active", Source.content_type != "html")).all()
+            older = superseded_ids([(d.id, d.url, d.academic_year) for d in docs])
+            for d in docs:
+                junk = junk_reason(d.raw_text or d.text)
+                status = "excluded" if junk else "superseded" if d.id in older else None
+                if status:
+                    reason = junk or older[d.id]
+                    if d.index_status != status or d.excluded_reason != reason:
+                        self._mark(d, status)
+                        d.excluded_reason = reason
+                    self.stats.excluded += status == "excluded"
+                    self.stats.superseded += status == "superseded"
+                elif d.index_status in ("excluded", "superseded"):  # a rule changed or the newer edition is gone
+                    d.index_status, d.excluded_reason = "pending", None
 
     # ================================================================ stage 3: index
     def _index_stage(self) -> None:
         self.stats.phase = "indexing"
         with session_scope() as db:
             if self.reindex:
-                for src in db.scalars(select(Source).where(Source.status == "active")):
+                for src in db.scalars(select(Source).where(
+                        Source.status == "active", Source.index_status.not_in(("excluded", "superseded")))):
                     src.index_status = "pending"
             pending = db.scalars(select(Source.id).where(Source.index_status == "pending").order_by(Source.id)).all()
         self.stats.to_index = len(pending)

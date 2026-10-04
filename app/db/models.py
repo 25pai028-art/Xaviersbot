@@ -49,9 +49,11 @@ class Source(Base):
     academic_year: Mapped[str | None] = mapped_column(String(20), nullable=True)
     content_hash: Mapped[str] = mapped_column(String(64), default="")  # of raw_text: change detection
     text_hash: Mapped[str | None] = mapped_column(String(64), nullable=True)  # of final text: duplicate detection
-    # pending → indexed | empty | duplicate. "pending" survives interruptions and is indexed on the next run.
+    # pending → indexed | empty | duplicate | excluded (junk) | superseded (older edition). "pending" survives
+    # interruptions and is indexed on the next run.
     index_status: Mapped[str] = mapped_column(String(20), default="pending", index=True)
     duplicate_of: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    excluded_reason: Mapped[str | None] = mapped_column(String(300), nullable=True)  # why it is not searched
     etag: Mapped[str | None] = mapped_column(String(256), nullable=True)
     last_modified_header: Mapped[str | None] = mapped_column(String(128), nullable=True)
     remote_modified: Mapped[str | None] = mapped_column(String(64), nullable=True)  # WP/sitemap lastmod

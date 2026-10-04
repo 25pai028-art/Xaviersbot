@@ -14,6 +14,7 @@
     <tr><th>Type</th><td>{{ src.content_type }} · {{ src.source_type }}{% if src.ocr_used %} · read with OCR{% endif %} · language: {{ src.language }}</td></tr>
     <tr><th>Status</th><td><span class="badge {{ 'ok' if src.index_status == 'indexed' else 'err' if src.index_status in ('error','blocked') else 'warn' }}">{{ src.index_status }}</span> · {{ src.chunk_count }} chunks
       {% if src.duplicate_of %} · same text as <a href="/admin/sources/{{ src.duplicate_of }}">#{{ src.duplicate_of }}</a>{% endif %}
+      {% if src.excluded_reason %}<div class="muted">Not searched: {{ src.excluded_reason }}</div>{% endif %}
       {% if src.error %}<div class="muted">{{ src.error }}</div>{% endif %}</td></tr>
     <tr><th>Date</th><td>{{ src.published_at | d }}{% if src.academic_year %} · academic year {{ src.academic_year }}{% endif %}</td></tr>
     <tr><th>Last fetched / changed</th><td>{{ src.last_crawled_at | dt }} / {{ src.last_changed_at | dt }}</td></tr>
