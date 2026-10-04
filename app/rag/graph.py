@@ -29,6 +29,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import re
 from functools import lru_cache
 from typing import TypedDict
 
@@ -40,11 +41,11 @@ from app.guardrails.input import check_input, is_about_college
 from app.llm.base import ChatMessage, LLMError
 from app.llm.factory import get_llm
 from app.rag.embeddings import embed_query
-from app.rag.factcheck import check_answer, drop_unsupported_lines, is_no_info_answer
-from app.rag.prompts import (CALM_MESSAGE, MISCONDUCT_MESSAGE, NO_INFO_MESSAGE, OUT_OF_SCOPE_MESSAGE, RETRY_PROMPT,
+from app.rag.factcheck import answer_units, check_answer, content_words, drop_unsupported_lines, is_no_info_answer
+from app.rag.prompts import (CALM_MESSAGE, GROUNDING_PROMPT, MISCONDUCT_MESSAGE, OUT_OF_SCOPE_MESSAGE, RETRY_PROMPT,
                              SMALL_TALK_MESSAGES,
                              STALE_NOTE,
-                             build_system_prompt, build_user_turn, format_context)
+                             build_system_prompt, build_user_turn, format_context, no_info_message)
 from app.rag.query import contextualize, expand_abbreviations, is_time_sensitive, llm_rewrite
 from app.rag.retriever import FRESH_DAYS, Retrieval, content_age_days, hybrid_search
 from app.rag.vectorstore import Hit
@@ -199,7 +200,7 @@ async def rewrite(state: RAGState) -> RAGState:
 async def no_answer(state: RAGState) -> RAGState:
     if not is_about_college(state["grade_query"]):
         return _fixed_reply(OUT_OF_SCOPE_MESSAGE.format(bot_name=get_settings().app_name), "guard: out of scope")
-    return _fixed_reply(NO_INFO_MESSAGE, "no relevant source found")
+    return _fixed_reply(no_info_message(), "no relevant source found")
 
 
 async def generate(state: RAGState) -> RAGState:
@@ -226,60 +227,116 @@ async def generate(state: RAGState) -> RAGState:
 
 
 async def verify(state: RAGState) -> RAGState:
+    """Only what the sources say: (1) every figure, date and contact must be in them (one corrected retry,
+    then wrong lines are dropped); (2) every sentence must be stated in them (a second AI pass). Whatever is
+    left is the answer; if nothing real is left, the student is sent to the college office."""
     answer = state.get("answer", "")
     if not answer:
         return {}
-    if is_no_info_answer(answer):
-        return {"answered": False, "reason": "model found no answer in the sources"}
-    if not get_settings().fact_check_enabled:
+    write = get_stream_writer()
+    if _just_a_refusal(answer):
+        return _no_info(write, state.get("usage"), "model found no answer in the sources")
+    s = get_settings()
+    if not s.fact_check_enabled:
         return {}
     # Check against exactly what the model saw: chunk text plus each source's title, URL, date and year.
     hits = state.get("context_hits") or state["retrieval"].hits
     context = format_context(hits)
-    fc = check_answer(answer, context, state["question"])
-    if fc.ok:
-        return _stale_note(state, hits, answer)
-    log.warning("Fact check failed, unsupported: %s", fc.unsupported)
-    write = get_stream_writer()
-
-    # One more try, told exactly what was wrong. Small models often add up fee heads ("₹500 + ₹1,000 →
-    # ₹1,500") while the rest of the answer is right; throwing it all away would lose a good answer.
-    write({"type": "replace", "text": ""})
-    write({"type": "status", "text": "Double-checking the figures…"})
     usage = state.get("usage")
-    retry = ""
+
+    fc = check_answer(answer, context, state["question"])
+    if not fc.ok:
+        log.warning("Fact check failed, unsupported: %s", fc.unsupported)
+        # One more try, told exactly what was wrong. Small models often add up fee heads ("₹500 + ₹1,000 →
+        # ₹1,500") while the rest of the answer is right; throwing it all away would lose a good answer.
+        write({"type": "replace", "text": ""})
+        write({"type": "status", "text": "Double-checking the figures…"})
+        retry, usage = await _retry_figures(state, hits, answer, fc.unsupported, usage)
+        if retry and not _just_a_refusal(retry):
+            answer, fc = retry, check_answer(retry, context, state["question"])
+            if not fc.ok:
+                log.warning("Fact check failed again, unsupported: %s", fc.unsupported)
+        if not fc.ok:  # still wrong: keep the lines whose facts check out, if a real answer remains
+            trimmed = drop_unsupported_lines(answer, fc.unsupported)
+            if not trimmed or not check_answer(trimmed, context, state["question"]).ok:
+                return _no_info(write, usage, "fact check failed: " + ", ".join(fc.unsupported[:5]))
+            answer = trimmed
+        write({"type": "replace", "text": answer})
+
+    if s.grounding_check:
+        grounded, usage = await _grounded(state, context, answer, usage)
+        if grounded != answer:
+            if not grounded:
+                return _no_info(write, usage, "not stated in the sources")
+            answer = grounded
+            write({"type": "replace", "text": answer})
+
+    out = {"answer": answer, "usage": usage, **_stale_note(state, hits, answer)}
+    if is_no_info_answer(answer):  # answered in part: the admin still sees the gap
+        out.update(answered=False, reason="model found only part of the answer in the sources")
+    return out
+
+
+def _just_a_refusal(answer: str) -> bool:
+    """'I don't have that information.' with nothing else of substance (a partial answer has more)."""
+    return is_no_info_answer(answer) and len(answer) < 220 and not re.search(r"\d", answer)
+
+
+def _no_info(write, usage, reason: str) -> RAGState:
+    msg = no_info_message()
+    write({"type": "replace", "text": msg})
+    return {"answer": msg, "answered": False, "usage": usage, "reason": reason}
+
+
+async def _retry_figures(state: RAGState, hits: list[Hit], answer: str, wrong: list[str], usage):
+    s = get_settings()
+    history = state.get("history", [])[-2 * s.chat_history_turns:]
+    messages = history + [
+        ChatMessage(role="user", content=build_user_turn(state["question"], hits)),
+        ChatMessage(role="assistant", content=answer),
+        ChatMessage(role="user", content=RETRY_PROMPT.format(wrong=", ".join(wrong[:5]))),
+    ]
+    parts: list[str] = []
+    write = get_stream_writer()
     try:
-        s = get_settings()
-        history = state.get("history", [])[-2 * s.chat_history_turns:]
-        messages = history + [
-            ChatMessage(role="user", content=build_user_turn(state["question"], hits)),
-            ChatMessage(role="assistant", content=answer),
-            ChatMessage(role="user", content=RETRY_PROMPT.format(wrong=", ".join(fc.unsupported[:5]))),
-        ]
-        parts: list[str] = []
         async with llm_slot:
             async for delta in get_llm().stream(build_system_prompt(s.app_name), messages):
                 parts.append(delta)
                 write({"type": "token", "text": delta})
             usage = _add_usage({**state, "usage": usage})
-        retry = "".join(parts).strip()
     except LLMError as e:
         log.warning("LLM failure on fact-check retry: %s", e)
-    if retry and not is_no_info_answer(retry):
-        fc2 = check_answer(retry, context, state["question"])
-        if fc2.ok:
-            return {"answer": retry, "usage": usage, **_stale_note(state, hits, retry)}
-        log.warning("Fact check failed again, unsupported: %s", fc2.unsupported)
-        answer, fc = retry, fc2
+        return "", usage
+    return "".join(parts).strip(), usage
 
-    # Still wrong: keep the lines whose facts check out, if a real answer remains.
-    trimmed = drop_unsupported_lines(answer, fc.unsupported)
-    if trimmed and check_answer(trimmed, context, state["question"]).ok:
-        write({"type": "replace", "text": trimmed})
-        return {"answer": trimmed, "usage": usage, **_stale_note(state, hits, trimmed)}
-    write({"type": "replace", "text": NO_INFO_MESSAGE})
-    return {"answer": NO_INFO_MESSAGE, "answered": False, "usage": usage,
-            "reason": "fact check failed: " + ", ".join(fc.unsupported[:5])}
+
+# Our own pointers ("Please contact the college office…") are advice, not claims about the college.
+_OWN_ADVICE = re.compile(r"contact|college office|please (confirm|check|visit|refer)|for (more|further|the latest)",
+                         re.I)
+
+
+async def _grounded(state: RAGState, context: str, answer: str, usage):
+    """The answer without the sentences a second AI pass finds are not stated in the sources ("" if nothing
+    real is left). On an LLM failure the answer is kept: its figures were already checked."""
+    units = [u for u in answer_units(answer) if len(content_words(u)) >= 3 and not _OWN_ADVICE.search(u)]
+    if not units:
+        return answer, usage
+    numbered = "\n".join(f"{i}. {u.strip()}" for i, u in enumerate(units, 1))
+    prompt = (f"<website_text>\n{context}\n</website_text>\n\nQuestion: {state['question']}\n\n"
+              f"Answer sentences:\n{numbered}")
+    try:
+        async with llm_slot:
+            res = await get_llm().generate(GROUNDING_PROMPT, [ChatMessage(role="user", content=prompt)])
+            usage = _add_usage({**state, "usage": usage})
+    except LLMError as e:
+        log.warning("Grounding check skipped (LLM failure): %s", e)
+        return answer, usage
+    verdicts = {int(n): v.upper() for n, v in re.findall(r"(?m)^\W*(\d+)\W+(SUPPORTED|NOT)\b", res.text, re.I)}
+    bad = [u for i, u in enumerate(units, 1) if verdicts.get(i) == "NOT"]
+    if not bad:
+        return answer, usage
+    log.warning("Not stated in the sources, removed: %s", bad)
+    return drop_unsupported_lines(answer, bad), usage
 
 
 def _stale_note(state: RAGState, hits: list[Hit], answer: str) -> RAGState:

@@ -128,24 +128,21 @@ def test_ocr_inline_when_not_deferred():
 
 
 def test_requests_to_one_host_stay_spaced_out_across_threads():
+    # Measured by the slots handed out and the total time, not by when each thread reports back: on a busy
+    # machine a thread can be descheduled after its turn, which would make two turns look close together.
     f = Fetcher(settings(crawl_delay_seconds=0.1))
-    starts, lock = [], threading.Lock()
-
-    def go():
-        f._wait_turn("sxca.edu.in")
-        with lock:
-            starts.append(time.monotonic())
-
+    begin = time.monotonic()
     try:
-        threads = [threading.Thread(target=go) for _ in range(5)]
+        threads = [threading.Thread(target=f._wait_turn, args=("sxca.edu.in",)) for _ in range(5)]
         for t in threads:
             t.start()
         for t in threads:
             t.join()
+        last_slot = f._last_hit["sxca.edu.in"]
     finally:
         f.close()
-    starts.sort()
-    assert all(b - a >= 0.09 for a, b in zip(starts, starts[1:]))
+    assert last_slot - begin >= 0.39  # 5 requests: slots at +0, +0.1, +0.2, +0.3, +0.4
+    assert time.monotonic() - begin >= 0.38  # and the last one really waited for its slot
 
 
 def test_browser_rendering_given_up_on_a_site_where_it_adds_nothing(site, monkeypatch):

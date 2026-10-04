@@ -68,6 +68,9 @@ class Settings(BaseSettings):
     chat_history_turns: int = 3
     rag_query_rewrite: bool = True
     fact_check_enabled: bool = True
+    # After the figures check, a second AI pass removes sentences the sources don't state. Adds one LLM call
+    # (~15-30 s on a laptop CPU, ~1-2 s with a cloud model).
+    grounding_check: bool = True
     # Legitimate channel offered when refusing cheating/hacking requests (from sxca.edu.in/contact-us/).
     guard_exam_office_contact: str = "Examination Office (coe@sxca.edu.in, 079-26308055)"
 

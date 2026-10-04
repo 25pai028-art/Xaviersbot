@@ -111,6 +111,67 @@ async def _run(monkeypatch, retrieval: Retrieval, answer: str):
     return events, final, llm
 
 
+class Judging(FakeLLM):
+    """Writes `answer`; as the sentence checker it replies with `verdicts`."""
+
+    def __init__(self, answer: str, verdicts: str):
+        super().__init__(answer)
+        self.verdicts, self.judged = verdicts, ""
+
+    async def generate(self, system, messages):
+        self.calls += 1
+        if "SUPPORTED" in system:
+            self.judged = messages[-1].content
+            return LLMResult(text=self.verdicts)
+        return LLMResult(text="rewritten query")
+
+
+async def _run_with(monkeypatch, llm, question="B.Com fee?"):
+    r = Retrieval(hits=[_hit(CONTEXT, 0.7)], best_score=0.7, relevant=True)
+    monkeypatch.setattr(graph_mod, "get_llm", lambda: llm)
+    monkeypatch.setattr(graph_mod, "embed_query", lambda q: [0.0])
+    monkeypatch.setattr(graph_mod, "hybrid_search", lambda *a, **k: r)
+    events, final = [], {}
+    async for mode, chunk in graph_mod.build_graph().astream({"question": question, "history": []},
+                                                              stream_mode=["custom", "values"]):
+        (events.append(chunk) if mode == "custom" else None)
+        final = chunk if mode == "values" else final
+    return events, final
+
+
+async def test_sentences_not_stated_in_the_sources_are_removed(monkeypatch):
+    llm = Judging("The B.Com fee is Rs. 20,000 per year.\n- The fee is the lowest among colleges in Gujarat.\n"
+                  "- Please contact the college office for payment help.", "1 NOT")
+    # (the short fee sentence isn't sent to the checker: its figure was already checked exactly)
+    events, final = await _run_with(monkeypatch, llm)
+    assert final["answered"] is True
+    assert final["answer"] == "The B.Com fee is Rs. 20,000 per year.\n- Please contact the college office for payment help."
+    assert events[-1] == {"type": "replace", "text": final["answer"]}
+    assert "Please contact" not in llm.judged  # our own advice is not checked as a claim
+
+
+async def test_nothing_stated_means_contact_the_office(monkeypatch):
+    llm = Judging("The B.Com programme was started by the Jesuits to serve the commerce community of Gujarat.",
+                  "1 NOT")
+    _, final = await _run_with(monkeypatch, llm)
+    assert final["answered"] is False and final["reason"] == "not stated in the sources"
+    assert final["answer"].startswith("I don't have that information")
+    assert "info@sxca.edu.in" in final["answer"] and "079-29708056" in final["answer"]  # the office's contacts
+
+
+async def test_a_plain_refusal_gets_the_office_contacts(monkeypatch):
+    llm = Judging("I don't have that information.", "")
+    _, final = await _run_with(monkeypatch, llm)
+    assert final["answered"] is False and "info@sxca.edu.in" in final["answer"]
+    assert llm.judged == ""  # nothing to check
+
+
+async def test_a_partial_answer_is_still_checked(monkeypatch):
+    llm = Judging("The B.Com fee is Rs. 45,000 per year. I don't have the hostel fee.", "")
+    _, final = await _run_with(monkeypatch, llm)
+    assert "45,000" not in final["answer"]  # used to skip every check because it contained "don't have"
+
+
 async def test_graph_answers_from_relevant_context(monkeypatch):
     r = Retrieval(hits=[_hit(CONTEXT, 0.7)], best_score=0.7, relevant=True)
     events, final, _ = await _run(monkeypatch, r, "The B.Com fee is Rs. 20,000 per year.")
@@ -159,7 +220,7 @@ async def test_only_the_wrong_line_is_dropped_when_the_retry_is_wrong_too(monkey
     r = Retrieval(hits=[_hit(CONTEXT, 0.7)], best_score=0.7, relevant=True)
     events, final, llm = await _run(
         monkeypatch, r, "The B.Com fee is Rs. 20,000 per year.\n- Library fee: Rs. 1,500\n- Email: admissions@sxca.edu.in")
-    assert llm.calls == 2  # answer + one retry
+    assert llm.calls == 3  # answer + one retry + the sentence check
     assert final["answered"] is True
     assert "1,500" not in final["answer"] and "20,000" in final["answer"] and "admissions@" in final["answer"]
     assert events[-1] == {"type": "replace", "text": final["answer"]}

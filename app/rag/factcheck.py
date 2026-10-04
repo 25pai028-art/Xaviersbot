@@ -176,3 +176,25 @@ def _digits_spaced(text: str) -> str:
 
 def is_no_info_answer(answer: str) -> bool:
     return bool(NO_INFO.search(answer)) or "don't have that information" in answer.lower()
+
+
+# ---------------------------------------------------------------- sentences (for the grounding check)
+_STOP = set("""about above after again also although among another because before being below between both
+could does doing during each either every from further have having here into itself just more most must
+neither other otherwise ought same shall should since some such than that their theirs them then there these
+they this those though through under until upon very were what when where whether which while whom whose
+will with within without would your yours you are was the and for but not can may has had its our out""".split())
+
+
+def content_words(text: str) -> list[str]:
+    return [w for w in re.findall(r"[a-z]+", text.lower()) if len(w) >= 4 and w not in _STOP]
+
+
+def answer_units(answer: str) -> list[str]:
+    """Bullets and sentences of an answer, exactly as they appear in it."""
+    units = []
+    for line in answer.splitlines():
+        if not line.strip():
+            continue
+        units += [line] if _BULLET.match(line) else [s for s in _SENTENCE_END.split(line) if s.strip()]
+    return units
