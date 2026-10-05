@@ -45,7 +45,7 @@ from app.rag.factcheck import answer_units, check_answer, content_words, drop_un
 from app.rag.prompts import (CALM_MESSAGE, GROUNDING_PROMPT, MISCONDUCT_MESSAGE, OUT_OF_SCOPE_MESSAGE, RETRY_PROMPT,
                              SMALL_TALK_MESSAGES,
                              STALE_NOTE,
-                             build_system_prompt, build_user_turn, format_context, no_info_message)
+                             build_system_prompt, build_user_turn, format_context, no_info_message, source_label)
 from app.rag.query import contextualize, expand_abbreviations, is_time_sensitive, llm_rewrite
 from app.rag.retriever import FRESH_DAYS, Retrieval, content_age_days, hybrid_search
 from app.rag.vectorstore import Hit
@@ -274,7 +274,25 @@ async def verify(state: RAGState) -> RAGState:
     out = {"answer": answer, "usage": usage, **_stale_note(state, hits, answer)}
     if is_no_info_answer(answer):  # answered in part: the admin still sees the gap
         out.update(answered=False, reason="model found only part of the answer in the sources")
+    label = source_label(_best_source(answer, hits))
+    if label:  # added by code, so it always names a document the answer was really checked against
+        line = f"\n\nSource: {label}"
+        write({"type": "token", "text": line})
+        out["answer"] = out["answer"] + line
     return out
+
+
+def _best_source(answer: str, hits: list[Hit]) -> dict:
+    """Metadata of the source the answer draws on most: the hit sharing the most of the answer's words."""
+    words = set(content_words(answer))
+    best, best_score = {}, 0
+    for h in hits:
+        if h.chunk_id.startswith("verified:"):
+            continue
+        score = len(words & set(content_words(h.text)))
+        if score > best_score:
+            best, best_score = h.metadata, score
+    return best
 
 
 def _just_a_refusal(answer: str) -> bool:

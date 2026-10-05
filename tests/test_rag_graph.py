@@ -145,8 +145,9 @@ async def test_sentences_not_stated_in_the_sources_are_removed(monkeypatch):
     # (the short fee sentence isn't sent to the checker: its figure was already checked exactly)
     events, final = await _run_with(monkeypatch, llm)
     assert final["answered"] is True
-    assert final["answer"] == "The B.Com fee is Rs. 20,000 per year.\n- Please contact the college office for payment help."
-    assert events[-1] == {"type": "replace", "text": final["answer"]}
+    body = "The B.Com fee is Rs. 20,000 per year.\n- Please contact the college office for payment help."
+    assert final["answer"] == body + "\n\nSource: Fees"
+    assert events[-2:] == [{"type": "replace", "text": body}, {"type": "token", "text": "\n\nSource: Fees"}]
     assert "Please contact" not in llm.judged  # our own advice is not checked as a claim
 
 
@@ -213,7 +214,7 @@ async def test_wrong_figure_gets_one_corrected_retry(monkeypatch):
     monkeypatch.setattr(graph_mod, "embed_query", lambda q: [0.0])
     monkeypatch.setattr(graph_mod, "hybrid_search", lambda *a, **k: r)
     final = await graph_mod.build_graph().ainvoke({"question": "B.Com fee?", "history": []})
-    assert final["answered"] is True and final["answer"] == "The B.Com fee is Rs. 20,000 per year."
+    assert final["answered"] is True and final["answer"] == "The B.Com fee is Rs. 20,000 per year.\n\nSource: Fees"
 
 
 async def test_only_the_wrong_line_is_dropped_when_the_retry_is_wrong_too(monkeypatch):
@@ -223,7 +224,32 @@ async def test_only_the_wrong_line_is_dropped_when_the_retry_is_wrong_too(monkey
     assert llm.calls == 3  # answer + one retry + the sentence check
     assert final["answered"] is True
     assert "1,500" not in final["answer"] and "20,000" in final["answer"] and "admissions@" in final["answer"]
-    assert events[-1] == {"type": "replace", "text": final["answer"]}
+    assert events[-2] == {"type": "replace", "text": final["answer"].removesuffix("\n\nSource: Fees")}
+
+
+@pytest.mark.parametrize("meta, label", [
+    ({"title": "View Handbook", "academic_year": "2026-27", "content_type": "pdf"}, "Handbook 2026-27"),
+    ({"title": "Download Fees structure ( Self Financed )", "academic_year": "2026-27", "content_type": "pdf"},
+     "Fees structure (Self Financed) 2026-27"),
+    ({"title": "Academic Year 2026 – 27", "academic_year": "2026-27", "content_type": "pdf",
+      "section": "Academics › Academic Calendar"}, "Academic Calendar 2026-27"),
+    ({"title": "College Council", "content_type": "html", "url": "https://sxca.edu.in/about-us/college-council/"},
+     "College Council page, sxca.edu.in"),
+    ({"title": "", "url": "https://sxca.edu.in/x.pdf"}, ""),
+])
+def test_source_line_names_the_document_plainly(meta, label):
+    from app.rag.prompts import source_label
+
+    assert source_label(meta) == label
+
+
+def test_source_line_picks_the_document_the_answer_uses():
+    from app.rag.graph import _best_source
+
+    hits = [Hit(chunk_id="1:0", text="Library timings and borrowing rules.", metadata={"title": "Library"}, score=0.7),
+            Hit(chunk_id="2:0", text="Principal Dr. Sebastian appointed In Charge Principal in January 2026.",
+                metadata={"title": "Handbook"}, score=0.6)]
+    assert _best_source("Dr. Sebastian is the In Charge Principal (appointed January 2026).", hits)["title"] == "Handbook"
 
 
 def test_fee_period_must_match_the_source():
@@ -295,3 +321,11 @@ def test_fact_check_accepts_source_dates_shown_to_the_model():
     ans = "Email coe@sxca.edu.in (contact page updated 2026-03-25)."
     assert check_answer(ans, format_context([hit])).ok
     assert check_answer("The contact page was updated on 25 March 2026.", format_context([hit])).ok
+
+
+def test_fee_for_the_whole_course_must_be_stated_by_the_source():
+    sem = "UNDERGRADUATE (UG): S.No; Programme; 2026-27 (Sem-1)\nUNDERGRADUATE (UG): 1; B.S.(BCA); 31,250"
+    fc = check_answer("The BCA fee for 2026-27 is Rs. 31,250 per course.", sem)
+    assert not fc.ok and "per course" in fc.unsupported
+    assert check_answer("The BCA fee for 2026-27 is Rs. 31,250 for Semester 1.", sem).ok
+    assert check_answer("The course fee is Rs. 9,000 per course.", "Certificate course fee: Rs. 9,000 per course.").ok

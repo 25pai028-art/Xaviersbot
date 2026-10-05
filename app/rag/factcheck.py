@@ -19,6 +19,9 @@ NUMBER = re.compile(r"(?<![\w.])\d{1,3}(?:,\d{2,3})+(?:\.\d+)?|(?<![\w.,])\d{3,}
 FEE_PERIODS = {
     "year": re.compile(r"\b(per (year|annum)|p\.\s?a\.|annual(ly)?|yearly|a year|/\s?year|each year|every year)\b", re.I),
     "month": re.compile(r"\b(per month|monthly|a month|/\s?month|each month)\b", re.I),
+    # "Rs. 31,250 per course" when the fee table says Sem-1
+    "course": re.compile(r"\b(per (course|programme|program)|for the (whole|entire|full|complete) "
+                         r"(course|programme|program|degree)|total (course|programme|program) fees?)\b", re.I),
 }
 AMOUNT_OR_NUMBER = re.compile(r"(?:₹|rs\.?|inr)\s*\d|\d{1,3},\d{3}", re.I)
 ACADEMIC_YEAR = re.compile(r"\b(20\d{2})\s*[-–/]\s*(\d{2})\b")
