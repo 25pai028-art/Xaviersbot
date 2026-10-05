@@ -47,7 +47,11 @@ TIME_SENSITIVE = re.compile(
     r"\b(fees?|due|dues|deadline|last date|pay(ment)?|notices?|circulars?|news|latest|recent|upcoming|current|"
     r"this (year|semester|sem|month|week|term)|today|tomorrow|events?|fest|festival|exams?|examinations?|"
     r"time ?tables?|schedule|results?|admissions?|admission form|merit list|calendar|holidays?|vacation|"
-    r"registration|last day|starts?|begin|reopen|placement drive|interview)\b",
+    r"registration|last day|starts?|begin|reopen|placement drive|interview|"
+    # Who holds a senior post also changes: the 2026 Handbook names today's principal, old yearly reports
+    # (AQAR, audits) earlier ones and match "principal of St. Xavier's College" better. Kept to these posts:
+    # for cells and committees the contact page beats a newer handbook that doesn't name anyone.
+    r"principal|vice[- ]?principal|director|rector|registrar|dean|hods?|head of (the )?(\w+ )?department)\b",
     re.I)
 
 

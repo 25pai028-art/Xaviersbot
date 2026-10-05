@@ -329,3 +329,11 @@ def test_fee_for_the_whole_course_must_be_stated_by_the_source():
     assert not fc.ok and "per course" in fc.unsupported
     assert check_answer("The BCA fee for 2026-27 is Rs. 31,250 for Semester 1.", sem).ok
     assert check_answer("The course fee is Rs. 9,000 per course.", "Certificate course fee: Rs. 9,000 per course.").ok
+
+
+def test_source_line_fixes_roman_numerals_from_file_names():
+    from app.rag.prompts import source_label
+
+    meta = {"title": "Notice For Students Inaugural Assembly For Sem Iii V", "content_type": "pdf"}
+    assert source_label(meta) == "Notice For Students Inaugural Assembly For Sem III V"
+    assert source_label({"title": "Vision and Mission", "content_type": "pdf"}) == "Vision and Mission"

@@ -29,12 +29,16 @@ def hit(cid, days_old=None, ay="", grade=0.7, cov=0.8):
 
 
 @pytest.mark.parametrize("q", ["When are the fees due?", "latest news", "exam timetable", "When does admission start?",
-                               "Is there a holiday on Monday?", "upcoming events this month"])
+                               "Is there a holiday on Monday?", "upcoming events this month",
+                               # who holds a senior post changes over time (old reports name earlier principals)
+                               "Who is the principal of St. Xavier's College?", "Who is the director?",
+                               "Who is the head of the Chemistry department?"])
 def test_time_sensitive_questions_detected(q):
     assert is_time_sensitive(q)
 
 
-@pytest.mark.parametrize("q", ["Who is the principal?", "Does the college have NCC?", "What is the email of Nisarg Vyas?"])
+@pytest.mark.parametrize("q", ["Does the college have NCC?", "What is the email of Nisarg Vyas?",
+                               "Who is the in-charge of the Career Cell?", "Who teaches Botany?"])
 def test_ordinary_questions_not_time_sensitive(q):
     assert not is_time_sensitive(q)
 
