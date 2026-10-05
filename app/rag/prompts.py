@@ -133,7 +133,7 @@ def source_label(meta: dict) -> str:
         return ""
     title = title[0].upper() + title[1:]
     # Titles made from file names are Title Case: "Sem Iii V" -> "Sem III V"
-    title = re.sub(r"\b(?:I{2,3}|Iv|Vi{1,3}|Ix|Xi{1,3})\b", lambda m: m.group(0).upper(), title)
+    title = re.sub(r"(?i)\b(?:ii|iii|iv|vi|vii|viii|ix|xi|xii)\b", lambda m: m.group(0).upper(), title)
     year = str(meta.get("academic_year") or "")
     section = str(meta.get("section") or "").split("›")[-1].strip()
     if section and not re.sub(r"(?i)academic|year|[\d\s–—/-]", "", title):  # "Academic Year 2026 – 27"
