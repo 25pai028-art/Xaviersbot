@@ -23,6 +23,10 @@ pillow>=10.3
 filetype>=1.2
 playwright>=1.44
 
+# --- Answer workflow and keyword search ---
+langgraph>=1.2
+rank-bm25>=0.2.2
+
 # --- Embeddings / ML ---
 torch
 sentence-transformers>=3.0
