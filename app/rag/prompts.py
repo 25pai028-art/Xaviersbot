@@ -144,3 +144,68 @@ def source_label(meta: dict) -> str:
         host = "admissions.sxca.edu.in" if "admissions.sxca.edu.in" in url else "sxca.edu.in"
         return f"{title} page, {host}"
     return title
+
+
+# ---------------------------------------------------------------- friendly replies to everyday chat
+# Instant (no AI call). A few variants each, chosen at random, and matched to what the student said, so the
+# chat feels like talking to a person rather than reading the same canned line.
+_HELP = ["How can I help you today?", "What would you like to know about the college?",
+         "What can I help you with today?", "Is there anything about St. Xavier's I can help you with?"]
+_HELP_MORE = ["Is there anything else I can help you with?", "Anything else you'd like to know?",
+              "Feel free to ask if you have more questions."]
+_REPLIES = {
+    "greeting": ["Hello! I'm {bot_name}.", "Hi there! I'm {bot_name}.", "Hey! Great to see you here.",
+                 "Hello and welcome! I'm {bot_name}."],
+    "how_are_you": ["I'm doing great, thanks for asking! 😊 How about you?",
+                    "I'm doing well, thank you! Hope you're doing well too.",
+                    "All good here, thanks for asking! How are you doing?"],
+    "user_is_fine": ["Glad to hear that! 😊", "That's great to hear!", "Wonderful!"],
+    "thanks": ["You're welcome! 😊", "Happy to help!", "Glad I could help!", "Anytime!"],
+    "compliment": ["Thank you, that's kind of you! 😊", "Aw, thanks! Happy to help.", "Thank you!"],
+    "bye": ["Goodbye, and all the best! Come back anytime you have a question about St. Xavier's College.",
+            "Take care! I'm here whenever you need help with anything about the college.",
+            "Bye! Feel free to come back anytime. 😊"],
+    "ack": ["Alright!", "Sure!", "Okay!", "Got it!"],
+}
+_TIME_OF_DAY = re.compile(r"good (morning|afternoon|evening)", re.I)
+
+
+def small_talk_reply(kind: str, question: str, bot_name: str, pick=None) -> str:
+    """A natural reply to everyday chat. `pick` chooses among variants (tests pass a fixed one)."""
+    import random
+
+    pick = pick or random.choice
+    q = question.lower()
+    if kind == "identity":
+        return SMALL_TALK_MESSAGES["identity"].format(bot_name=bot_name)
+    if kind == "greeting":
+        if m := _TIME_OF_DAY.search(question):
+            first = f"Good {m.group(1).lower()}! I'm {bot_name}."
+        elif re.search(r"(nice|pleased|glad) to meet", q):
+            first = "Nice to meet you too! 😊"
+        else:
+            first = pick(_REPLIES["greeting"]).format(bot_name=bot_name)
+        return f"{first} {pick(_HELP)}"
+    if kind == "how_are_you":
+        if re.search(r"how (have|'?ve) (you|u) been", q):
+            first = "I've been great, thanks for asking! 😊 How about you?"
+        elif re.search(r"(your|ur) day", q):
+            first = "My day's going well, thank you! How's yours?"
+        else:
+            first = pick(_REPLIES["how_are_you"])
+        greeting = _TIME_OF_DAY.search(question)
+        prefix = f"Good {greeting.group(1).lower()}! " if greeting else ""
+        # Asked "How about you?": wait for the answer instead of asking a second question at once.
+        return f"{prefix}{first}" if first.rstrip().endswith("?") else f"{prefix}{first} {pick(_HELP)}"
+    if kind == "thanks" and re.search(r"(you are|you'?re|u r|ur) |job|work|well done|answer", q) \
+            and not re.search(r"thank", q):
+        return f"{pick(_REPLIES['compliment'])} {pick(_HELP_MORE)}"
+    if kind == "bye":
+        if re.search(r"have a (nice|good|great) day", q):
+            return "Thank you, you too! Come back anytime you have a question about the college. 😊"
+        if re.search(r"good ?night|\bgn\b", q):
+            return "Good night! Come back anytime you have a question about the college."
+        return pick(_REPLIES["bye"])
+    if kind in _REPLIES:  # thanks, user_is_fine, ack
+        return f"{pick(_REPLIES[kind])} {pick(_HELP if kind == 'user_is_fine' else _HELP_MORE)}"
+    return SMALL_TALK_MESSAGES.get(kind, SMALL_TALK_MESSAGES["ack"]).format(bot_name=bot_name)

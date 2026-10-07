@@ -45,7 +45,8 @@ from app.rag.factcheck import answer_units, check_answer, content_words, drop_un
 from app.rag.prompts import (CALM_MESSAGE, GROUNDING_PROMPT, MISCONDUCT_MESSAGE, OUT_OF_SCOPE_MESSAGE, RETRY_PROMPT,
                              SMALL_TALK_MESSAGES,
                              STALE_NOTE,
-                             build_system_prompt, build_user_turn, format_context, no_info_message, source_label)
+                             build_system_prompt, build_user_turn, format_context, no_info_message, small_talk_reply,
+                             source_label)
 from app.rag.query import contextualize, expand_abbreviations, is_time_sensitive, llm_rewrite
 from app.rag.retriever import FRESH_DAYS, Retrieval, content_age_days, hybrid_search
 from app.rag.vectorstore import Hit
@@ -62,7 +63,7 @@ BUSY_MESSAGE = "The assistant is busy or temporarily unavailable. Please try aga
 class RAGState(TypedDict, total=False):
     question: str  # after the guard: profanity removed
     guard: str  # ok | misconduct | off_topic | abuse_only | small_talk
-    small_talk: str  # greeting | thanks | bye | how_are_you | identity | ack
+    small_talk: str  # greeting | thanks | bye | how_are_you | user_is_fine | identity | ack
     history: list[ChatMessage]
     grade_query: str  # self-contained question in the user's words
     search_query: str  # grade_query + expansions / LLM rewrite
@@ -107,7 +108,7 @@ def after_guard(state: RAGState) -> str:
 
 
 async def small_talk(state: RAGState) -> RAGState:
-    text = SMALL_TALK_MESSAGES[state["small_talk"]].format(bot_name=get_settings().app_name)
+    text = small_talk_reply(state["small_talk"], state["question"], get_settings().app_name)
     get_stream_writer()({"type": "token", "text": text})
     return {"answer": text, "answered": True, "reason": "guard: small talk"}
 

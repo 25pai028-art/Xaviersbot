@@ -152,9 +152,40 @@ def test_questions_containing_small_talk_words_are_still_questions(q):
 
 async def test_graph_answers_small_talk_instantly(monkeypatch):
     text, final = await _run("okay", monkeypatch)  # _run fails the test if search or the LLM is touched
-    assert text.startswith("Alright!") and final["answered"] is True
-    text, _ = await _run("hi", monkeypatch)
-    assert "Xavier's Assistant" in text
+    assert text.split("!")[0] in ("Alright", "Sure", "Okay", "Got it") and final["answered"] is True
+    text, _ = await _run("how are you doing", monkeypatch)
+    assert "thank" in text.lower()
+
+
+FIRST = lambda options: options[0]  # noqa: E731  (the replies vary at random; tests pick the first)
+
+
+@pytest.mark.parametrize("q, reply", [
+    ("how are you doing", "I'm doing great, thanks for asking! 😊 How about you?"),  # asks back, then waits
+    ("how have you been", "I've been great, thanks for asking! 😊 How about you?"),
+    ("good morning, how are you?", "Good morning! I'm doing great, thanks for asking! 😊 How about you?"),
+    ("I am good", "Glad to hear that! 😊 How can I help you today?"),
+    ("good evening", "Good evening! I'm Xavier's Assistant. How can I help you today?"),
+    ("nice to meet you", "Nice to meet you too! 😊 How can I help you today?"),
+    ("thank you so much for the help", "You're welcome! 😊 Is there anything else I can help you with?"),
+    ("great job", "Thank you, that's kind of you! 😊 Is there anything else I can help you with?"),
+    ("have a nice day", "Thank you, you too! Come back anytime you have a question about the college. 😊"),
+])
+def test_chat_replies_respond_to_what_was_said(q, reply):
+    from app.rag.prompts import small_talk_reply
+
+    assert small_talk_reply(check_input(q).small_talk, q, "Xavier's Assistant", pick=FIRST) == reply
+
+
+def test_chat_replies_vary():
+    from app.rag.prompts import small_talk_reply
+
+    assert len({small_talk_reply("how_are_you", "how are you doing", "X") for _ in range(60)}) > 1
+
+
+@pytest.mark.parametrize("q", ["I am good at maths, which course suits me?", "Is the hostel good?"])
+def test_sentences_starting_like_chat_are_questions(q):
+    assert check_input(q).kind == "ok"
 
 
 @pytest.mark.parametrize("q, kind", [

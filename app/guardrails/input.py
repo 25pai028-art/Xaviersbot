@@ -124,6 +124,11 @@ SMALL_TALK: list[tuple[str, re.Pattern]] = [
                             r"(আপনি|তুমি) কে|"
                             r"(ਤੁਸੀਂ|ਤੂੰ) ਕੌਣ (ਹੋ|ਹੈਂ))"
                             + _END, re.I)),
+    # The student's answer after "How about you?"
+    ("user_is_fine", re.compile(
+        r"^((i'?m|i am|im|me)( also| too)? (also )?(good|fine|great|well|ok(ay)?|doing (good|well|great|fine|ok))|"
+        r"doing (good|well|great|fine)|not bad|all good|same here|me too|i'?m good too)"
+        r"( too| as well| also)?( thanks?| thank you)?" + _END, re.I)),
     ("ack", re.compile(r"^(ok+a*y*|okie|k+|kk|alright|all right|fine|got it|understood|i see|cool|great|nice|good|"
                        r"awesome|perfect|hmm+|ah+|oh+|sure|yes|yeah|yep|no|nope|noted|done|right|haan|ha|theek hai|"
                        r"thik hai|achha|acha|barabar|saru)( then| thanks?| thank you)?" + _END, re.I)),
@@ -144,7 +149,7 @@ class GuardResult:
     kind: Literal["ok", "misconduct", "off_topic", "abuse_only", "small_talk"]
     question: str  # cleaned question (profanity removed)
     abusive: bool = False
-    small_talk: str = ""  # greeting | thanks | bye | how_are_you | identity | ack
+    small_talk: str = ""  # greeting | thanks | bye | how_are_you | user_is_fine | identity | ack
 
 
 # How an insult is addressed ("you ___ bot", "…, bot") — removed together with the insult.
@@ -158,7 +163,7 @@ def _strip_profanity(text: str) -> str:
 
 
 def small_talk_kind(question: str) -> str:
-    """greeting | thanks | bye | how_are_you | identity | ack, or "" for a real question. Chat spelling and a
+    """greeting | thanks | bye | how_are_you | user_is_fine | identity | ack, or "" for a real question. Chat spelling and a
     greeting in front are allowed: "hi, who r u bro?" is identity."""
     q = question.strip()
     for text in dict.fromkeys((q, _casual(q))):
