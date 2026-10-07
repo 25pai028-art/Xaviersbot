@@ -41,7 +41,11 @@ DateKey = tuple[int, int, int | None]  # (day, month, year or None)
 
 NO_INFO = re.compile(
     r"(don'?t|do not|doesn'?t|does not) (have|contain|include|mention|list|provide)[^.]{0,60}"
-    r"(information|details|mention|specific)|not (available|mentioned|provided|listed) in the (context|information)",
+    r"(information|details|mention|specific)|not (available|mentioned|provided|listed) in the (context|information)"
+    # "The college website does not list fees for an MSc in AI."
+    r"|\b(website|college|context|sources?|text|information|it)\b[^.]{0,30}\b(does not|doesn'?t|do not|don'?t|did not)"
+    r" (list|mention|include|provide|have|contain|specify|state|give|show)\b"
+    r"|\b(is|are) not (listed|mentioned|available|provided|specified|stated|given)\b",
     re.I)
 
 

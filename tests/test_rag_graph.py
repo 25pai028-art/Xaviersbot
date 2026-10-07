@@ -362,3 +362,19 @@ async def test_an_answer_reduced_to_a_refusal_gets_the_office_contacts(monkeypat
 ])
 def test_follow_ups_keep_the_topic_and_switch_the_subject(prev, q, expected):
     assert contextualize(q, [ChatMessage(role="user", content=prev)]) == expected
+
+
+def test_short_forms_match_spelled_out_course_names():
+    fee_ai = "Stream & Programme: MSc (ARTIFICIAL INTELLIGENCE) Fees Head: Total 50,000"
+    fee_maths = "Stream & Programme: MSc (MATHEMATICS) Fees Head: Total 26,450"
+    assert keyword_coverage("MSc AI fee", fee_ai) > keyword_coverage("MSc AI fee", fee_maths)
+
+
+@pytest.mark.parametrize("text", ["The college website does not list fees for an MSc in Artificial Intelligence (AI).",
+                                  "The hostel fee is not listed.", "It does not mention the hostel timings."])
+def test_more_ways_of_saying_not_found(text):
+    assert is_no_info_answer(text)
+
+
+def test_ordinary_negative_sentences_are_answers():
+    assert not is_no_info_answer("Admission does not require an entrance test for B.Com.")

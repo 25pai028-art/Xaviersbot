@@ -58,12 +58,28 @@ def _cosine(a: list[float], b: list[float]) -> float:
 
 
 def keyword_coverage(query: str, text: str) -> float:
-    """Share of the query's content words that literally occur in the chunk."""
+    """Share of the query's content words that occur in the chunk. A short form counts when the chunk spells
+    it out: "AI" is covered by "ARTIFICIAL INTELLIGENCE" (the fee tables never write "AI")."""
     terms = set(tokenize(query))
     if not terms:
         return 0.0
     words = set(tokenize(text))
-    return len(terms & words) / len(terms)
+    covered = sum(1 for t in terms if t in words or (_SPELLED_OUT.get(t) and _SPELLED_OUT[t] <= words))
+    return covered / len(terms)
+
+
+def _spelled_out() -> dict[str, set[str]]:
+    from app.rag.query import ABBREVIATIONS
+
+    out = {}
+    for short, long in ABBREVIATIONS.items():
+        full = {w for w in tokenize(long) if w != short and len(w) > 2}
+        if full and len(short) <= 5 and short not in ("fee", "fees"):  # abbreviations, not synonyms like "hostel"
+            out[short] = full
+    return out
+
+
+_SPELLED_OUT = _spelled_out()
 
 
 def _is_home_page(url: str) -> bool:
