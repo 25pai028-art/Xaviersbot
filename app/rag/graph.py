@@ -41,7 +41,8 @@ from app.guardrails.input import check_input, is_about_college
 from app.llm.base import ChatMessage, LLMError
 from app.llm.factory import get_check_llm, get_llm
 from app.rag.embeddings import embed_query
-from app.rag.factcheck import answer_units, check_answer, content_words, drop_unsupported_lines, is_no_info_answer
+from app.rag.factcheck import (answer_units, check_answer, content_words, drop_unsupported_lines, is_no_info_answer,
+                               loses_the_answer)
 from app.rag.prompts import (CALM_MESSAGE, GROUNDING_PROMPT, MISCONDUCT_MESSAGE, OUT_OF_SCOPE_MESSAGE, RETRY_PROMPT,
                              SMALL_TALK_MESSAGES,
                              STALE_NOTE,
@@ -273,7 +274,7 @@ async def verify(state: RAGState) -> RAGState:
             if not fc.ok:
                 log.warning("Fact check failed again, unsupported: %s", fc.unsupported)
         if not fc.ok:  # still wrong: keep the lines whose facts check out, if a real answer remains
-            trimmed = drop_unsupported_lines(answer, fc.unsupported)
+            trimmed = "" if loses_the_answer(answer, fc.unsupported) else drop_unsupported_lines(answer, fc.unsupported)
             if not trimmed or not check_answer(trimmed, context, state["question"]).ok:
                 return _no_info(write, usage, "fact check failed: " + ", ".join(fc.unsupported[:5]))
             answer = trimmed
@@ -351,13 +352,19 @@ _OWN_ADVICE = re.compile(r"contact|college office|please (confirm|check|visit|re
                          re.I)
 
 
+_SEMESTER_PERIOD = re.compile(r"\s*\(?\b(?:per (?:semester|sem)|(?:for|in) (?:the )?(?:semester|sem)[- ]?(?:1|i|one))\b\)?",
+                              re.I)
+
+
 async def _grounded(state: RAGState, context: str, answer: str, usage):
     """The answer without the sentences a second AI pass finds are not stated in the sources ("" if nothing
     real is left). On an LLM failure the answer is kept: its figures were already checked."""
     units = [u for u in answer_units(answer) if len(content_words(u)) >= 3 and not _OWN_ADVICE.search(u)]
     if not units:
         return answer, usage
-    numbered = "\n".join(f"{i}. {u.strip()}" for i, u in enumerate(units, 1))
+    # The fee period ("for Semester 1") is checked by code rules; the checker can't see it next to a table headed
+    # "Semester I, II, III, IV" and judged the same true sentence differently run to run. It judges the rest.
+    numbered = "\n".join(f"{i}. {_SEMESTER_PERIOD.sub('', u).strip()}" for i, u in enumerate(units, 1))
     prompt = (f"<website_text>\n{context}\n</website_text>\n\nQuestion: {state['question']}\n\n"
               f"Answer sentences:\n{numbered}")
     try:
@@ -373,6 +380,10 @@ async def _grounded(state: RAGState, context: str, answer: str, usage):
     if not bad:
         return answer, usage
     log.warning("Not stated in the sources, removed: %s", bad)
+    first = next((u for u in answer_units(answer) if u.strip()), "")
+    if first in bad:
+        # The direct answer is the first sentence: what follows ("This total includes…") is useless without it.
+        return "", usage
     return drop_unsupported_lines(answer, bad), usage
 
 

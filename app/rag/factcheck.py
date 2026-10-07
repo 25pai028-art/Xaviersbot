@@ -23,6 +23,15 @@ FEE_PERIODS = {
     "course": re.compile(r"\b(per (course|programme|program)|for the (whole|entire|full|complete) "
                          r"(course|programme|program|degree)|total (course|programme|program) fees?)\b", re.I),
 }
+_ROMAN_OR_NUM = r"(?:[ivx]{1,4}|\d{1,2})"
+SEMESTER_SPAN = re.compile(
+    rf"\b(cover(s|ing)?|for|across|spanning|over|throughout|includ(es|ing))\b[^.]{{0,30}}\b(semesters?|sems?)\s*"
+    rf"{_ROMAN_OR_NUM}\s*(through|to|till|until|-|–|and)\s*{_ROMAN_OR_NUM}\b"
+    r"|\ball (two|three|four|six|eight|\d) semesters\b|\b(entire|whole|full|complete) (course|programme|program|degree)\b",
+    re.I)
+# What a source would have to say for such a claim to be true
+SEMESTER_SPAN_EVIDENCE = re.compile(r"\b(for all|total for|entire|whole|full|complete) (semesters|course|programme|"
+                                    r"program|degree|duration)\b|\bprogramme fee\b|\bcourse fee\b", re.I)
 AMOUNT_OR_NUMBER = re.compile(r"(?:₹|rs\.?|inr)\s*\d|\d{1,3},\d{3}", re.I)
 ACADEMIC_YEAR = re.compile(r"\b(20\d{2})\s*[-–/]\s*(\d{2})\b")
 
@@ -106,6 +115,12 @@ def check_answer(answer: str, context: str, question: str = "") -> FactCheck:
         m = pattern.search(answer)
         if m and AMOUNT_OR_NUMBER.search(answer) and not pattern.search(evidence):
             unsupported.append(m.group(0))
+    # "Rs. 50,000 … covers Semesters I through IV": the table is headed "Semester I, II, III, IV" because the
+    # fee applies to each semester. A claim that one amount covers several semesters must be in the source.
+    if AMOUNT_OR_NUMBER.search(answer):
+        for sentence in re.split(r"(?<=[.!?])\s+|\n", answer):
+            if SEMESTER_SPAN.search(sentence) and not SEMESTER_SPAN_EVIDENCE.search(evidence):
+                unsupported.append(sentence.strip())
     return FactCheck(ok=not unsupported, unsupported=list(dict.fromkeys(unsupported)))
 
 
@@ -114,6 +129,14 @@ _BULLET = re.compile(r"^\s*([-*•]|\d+[.)])\s")
 _SENTENCE_END = re.compile(r"(?<=[a-z0-9)\]*][.!?])(?<!\b[A-Z][a-z]\.)\s+")
 _INTRO_ONLY = re.compile(r"^\W*(this (includes|is made up of|consists of)|the breakdown|breakdown|details|including)\b.{0,40}:\s*$",
                          re.I)
+
+
+def loses_the_answer(answer: str, unsupported: list[str]) -> bool:
+    """Would trimming drop the first sentence (the direct answer)? What follows it ("This total includes…")
+    means nothing on its own. A wrong fee period is only cut out of the sentence, so it doesn't count."""
+    first = next((u for u in answer_units(answer) if u.strip()), "")
+    facts = [u for u in unsupported if not any(p.fullmatch(u) for p in FEE_PERIODS.values())]
+    return any(u in first for u in facts)
 
 
 def drop_unsupported_lines(answer: str, unsupported: list[str]) -> str:

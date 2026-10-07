@@ -393,3 +393,23 @@ def test_a_chunk_ending_with_the_asked_programme_brings_its_table(monkeypatch):
     out = retriever._with_continuations(hits, "and what about MSc AI? fee 2026-27")
     # the AI heading + its table come first; a chunk that merely ends with "2026-27 MSc" gets nothing
     assert [h.chunk_id for h in out] == ["9:2", "9:3", "8:0"]
+
+
+async def test_when_the_direct_answer_is_removed_the_rest_is_not_shown(monkeypatch):
+    llm = Judging("The B.Com programme is the most popular course among commerce students in Gujarat.\n"
+                  "This programme includes accounting and economics subjects in every semester.", "1 NOT\n2 SUPPORTED")
+    _, final = await _run_with(monkeypatch, llm)
+    assert final["answered"] is False and final["answer"].startswith("I don't have that information")
+
+
+async def test_a_wrong_figure_in_the_first_sentence_is_not_trimmed_into_leftovers(monkeypatch):
+    llm = Judging("The B.Com fee is Rs. 45,000 per year.\nIt includes the academic and examination fees.", "")
+    _, final = await _run_with(monkeypatch, llm)  # the retry repeats the wrong figure
+    assert final["answered"] is False and "45,000" not in final["answer"] and "includes" not in final["answer"]
+
+
+def test_one_fee_for_several_semesters_must_be_stated():
+    src = "MSc (ARTIFICIAL INTELLIGENCE) Semester I, II, III, IV; Grand Total; Approved Fee (Rs.): 50,000"
+    assert not check_answer("Rs. 50,000 covers Semesters I through IV.", src).ok
+    assert not check_answer("The MSc AI fee is Rs. 50,000 for all four semesters.", src).ok
+    assert check_answer("The MSc AI fee for 2026-27 is Rs. 50,000 for Semester 1.", src).ok

@@ -7,11 +7,11 @@ from app.llm.base import ChatMessage, LLMProvider
 
 # Terms students use vs. words the website uses. Expansion helps both keyword and vector search.
 ABBREVIATIONS = {
-    "bca": "BCA Bachelor of Computer Applications",
+    "bca": "BCA Bachelor of Computer Applications B.S. (BCA)",
     "mca": "MCA Master of Computer Applications",
     "bcom": "B.Com Bachelor of Commerce",
     "mcom": "M.Com Master of Commerce",
-    "bba": "BBA Bachelor of Business Administration",
+    "bba": "BBA Bachelor of Business Administration B.S. (Business Administration)",
     "bsc": "B.Sc Bachelor of Science",
     "msc": "M.Sc Master of Science",
     "ba": "B.A. Bachelor of Arts",
@@ -105,6 +105,19 @@ _STANDALONE_SUBJECTS = set("""hostel hostels library canteen cafeteria transport
 club nss ncc events fest placement placements principal director rector campus wifi medical clinic uniform""".split())
 _FOLLOW_UP_OPENER = re.compile(r"^\s*(and|also|what about|how about|and what about|what of|same for|then|for)\b", re.I)
 _PRONOUN = re.compile(r"\b(it|its|it's|they|them|their|that one|this one|those|these|he|she|him|her|his)\b", re.I)
+
+
+def glossary(question: str) -> list[str]:
+    """Short forms in the question with their meaning, for the model: "BBA = Bachelor of Business
+    Administration B.S. (Business Administration)". The college writes the long names, so without this the
+    model doesn't connect "BBA" with "B.S. (BUSINESS ADMINISTRATION)" in the fee table."""
+    q = re.sub(r"\b([A-Za-z])\.(?=[A-Za-z])", r"\1", question)  # B.Com -> BCom
+    out = []
+    for short, long in ABBREVIATIONS.items():
+        if len(short) <= 5 and short not in ("fee", "fees") and re.search(rf"\b{short}\b", q, re.I):
+            meaning = re.sub(rf"^{short}\s+", "", long, flags=re.I)
+            out.append(f"{short.upper()} = {meaning}")
+    return out
 
 
 def expand_abbreviations(query: str) -> str:
