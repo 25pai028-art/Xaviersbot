@@ -344,3 +344,21 @@ async def test_an_answer_reduced_to_a_refusal_gets_the_office_contacts(monkeypat
                   "1 NOT")  # the checker removes the made-up line; only the 'does not list' sentence is left
     _, final = await _run_with(monkeypatch, llm, question="What is the hostel fee?")
     assert final["answered"] is False and "info@sxca.edu.in" in final["answer"]
+
+
+@pytest.mark.parametrize("prev, q, expected", [
+    # a new subject keeps the earlier topic: search for the MSc AI *fee*, not "BCA … and MSc AI"
+    ("What is the BCA fee for 2026-27?", "and what about MSc AI?", "and what about MSc AI? fee 2026-27"),
+    ("What is the BCA fee for 2026-27?", "MSc AI?", "MSc AI? fee 2026-27"),
+    ("What is the eligibility for B.Sc Physics?", "and for chemistry?", "and for chemistry? eligibility"),
+    ("What is the BCA syllabus?", "what about MCA?", "what about MCA? syllabus"),
+    # no subject of its own, or a pronoun: needs the earlier question
+    ("Tell me about BCA", "and the fees?", "Tell me about BCA and the fees?"),
+    ("Tell me about BCA", "how do I apply for it?", "Tell me about BCA how do I apply for it?"),
+    # complete new questions, or a different area, are searched as asked
+    ("What is the BCA fee?", "Who is the principal?", "Who is the principal?"),
+    ("What is the BCA fee?", "what about the hostel?", "what about the hostel?"),
+    ("What is the BCA fee?", "Does the college have NCC?", "Does the college have NCC?"),
+])
+def test_follow_ups_keep_the_topic_and_switch_the_subject(prev, q, expected):
+    assert contextualize(q, [ChatMessage(role="user", content=prev)]) == expected
