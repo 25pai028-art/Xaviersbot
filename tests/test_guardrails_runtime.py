@@ -117,3 +117,14 @@ def test_chat_api_asks_a_flooding_visitor_to_wait(monkeypatch):
         assert "wait a minute" in r.json()["detail"] and r.headers["retry-after"] == "60"
     finally:
         chat_limiter.reset()
+
+
+def test_checking_model_is_built_with_low_reasoning_for_gpt_oss():
+    from app.llm.factory import build_provider
+
+    s = get_settings().model_copy(update={"llm_provider": "openai", "openai_api_key": "test-key",
+                                          "openai_base_url": "https://api.groq.com/openai/v1",
+                                          "openai_model": "qwen/qwen3.8-27b"})
+    answer, checker = build_provider(s), build_provider(s, "openai/gpt-oss-120b")
+    assert answer.model == "qwen/qwen3.8-27b" and answer._extra == {}
+    assert checker.model == "openai/gpt-oss-120b" and checker._extra == {"reasoning_effort": "low"}

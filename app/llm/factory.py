@@ -7,7 +7,8 @@ from app.config import Settings, get_settings
 from app.llm.base import LLMError, LLMProvider
 
 
-def build_provider(settings: Settings) -> LLMProvider:
+def build_provider(settings: Settings, model: str | None = None) -> LLMProvider:
+    """`model` overrides the provider's configured model (used for the checking model)."""
     common = dict(temperature=settings.llm_temperature, max_output_tokens=settings.llm_max_output_tokens)
     name = settings.llm_provider.lower().strip()
 
@@ -15,7 +16,7 @@ def build_provider(settings: Settings) -> LLMProvider:
         from app.llm.ollama_provider import OllamaProvider
 
         return OllamaProvider(
-            model=settings.ollama_model,
+            model=model or settings.ollama_model,
             base_url=settings.ollama_base_url,
             num_ctx=settings.ollama_num_ctx,
             keep_alive=settings.ollama_keep_alive,
@@ -26,7 +27,7 @@ def build_provider(settings: Settings) -> LLMProvider:
         from app.llm.gemini_provider import GeminiProvider
 
         return GeminiProvider(
-            model=settings.gemini_model,
+            model=model or settings.gemini_model,
             api_key=settings.gemini_api_key,
             thinking_budget=settings.gemini_thinking_budget,
             **common,
@@ -35,7 +36,7 @@ def build_provider(settings: Settings) -> LLMProvider:
         from app.llm.anthropic_provider import AnthropicProvider
 
         return AnthropicProvider(
-            model=settings.anthropic_model,
+            model=model or settings.anthropic_model,
             api_key=settings.anthropic_api_key,
             effort=settings.anthropic_effort,
             timeout=settings.llm_timeout_seconds,
@@ -45,9 +46,10 @@ def build_provider(settings: Settings) -> LLMProvider:
         from app.llm.openai_provider import OpenAIProvider
 
         return OpenAIProvider(
-            model=settings.openai_model,
+            model=model or settings.openai_model,
             api_key=settings.openai_api_key,
             base_url=settings.openai_base_url,
+            reasoning_effort="low" if "gpt-oss" in (model or settings.openai_model) else "",
             timeout=settings.llm_timeout_seconds,
             **common,
         )
@@ -57,3 +59,10 @@ def build_provider(settings: Settings) -> LLMProvider:
 @lru_cache
 def get_llm() -> LLMProvider:
     return build_provider(get_settings())
+
+
+@lru_cache
+def get_check_llm() -> LLMProvider:
+    """The model for checking calls (CHECK_MODEL), or the answer model when none is set."""
+    s = get_settings()
+    return build_provider(s, s.check_model) if s.check_model.strip() else get_llm()

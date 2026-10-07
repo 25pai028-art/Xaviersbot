@@ -54,6 +54,10 @@ class Settings(BaseSettings):
     openai_api_key: str = ""
     openai_model: str = "gpt-4.1-mini"
     openai_base_url: str = ""
+    # Model for the checking calls (sentence check, search-query rewrite). Blank = the answer model. On Groq's
+    # free tier every model has its own tokens-per-minute allowance, so a second model about doubles how many
+    # answers fit in a minute. Same provider as LLM_PROVIDER.
+    check_model: str = ""
 
     # --- Embeddings / retrieval ---
     embedding_model: str = "BAAI/bge-m3"

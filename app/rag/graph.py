@@ -39,7 +39,7 @@ from langgraph.graph import END, START, StateGraph
 from app.config import get_settings
 from app.guardrails.input import check_input, is_about_college
 from app.llm.base import ChatMessage, LLMError
-from app.llm.factory import get_llm
+from app.llm.factory import get_check_llm, get_llm
 from app.rag.embeddings import embed_query
 from app.rag.factcheck import answer_units, check_answer, content_words, drop_unsupported_lines, is_no_info_answer
 from app.rag.prompts import (CALM_MESSAGE, GROUNDING_PROMPT, MISCONDUCT_MESSAGE, OUT_OF_SCOPE_MESSAGE, RETRY_PROMPT,
@@ -169,9 +169,14 @@ def _earlier(state: RAGState) -> list[str]:
     return [m.content for m in state.get("history", []) if m.role == "user"][-get_settings().chat_history_turns:]
 
 
-def _add_usage(state: RAGState) -> dict:
+def _checker():
+    """Model for checking calls: CHECK_MODEL if set (its own rate-limit allowance), else the answer model."""
+    return get_check_llm() if get_settings().check_model.strip() else get_llm()
+
+
+def _add_usage(state: RAGState, llm=None) -> dict:
     u = dict(state.get("usage") or {"calls": 0, "input_tokens": 0, "output_tokens": 0})
-    last = get_llm().last_usage
+    last = (llm or get_llm()).last_usage
     u["calls"] += 1
     u["input_tokens"] += last.input_tokens
     u["output_tokens"] += last.output_tokens
@@ -199,8 +204,9 @@ async def rewrite(state: RAGState) -> RAGState:
     get_stream_writer()({"type": "status", "text": "Searching more of the college website…"})
     try:
         async with llm_slot:
-            new_q = await llm_rewrite(get_llm(), state["grade_query"])
-            usage = _add_usage(state)
+            checker = _checker()
+            new_q = await llm_rewrite(checker, state["grade_query"])
+            usage = _add_usage(state, checker)
     except LLMError as e:
         log.warning("Query rewrite failed: %s", e)
         new_q, usage = state["grade_query"], state.get("usage")
@@ -356,8 +362,9 @@ async def _grounded(state: RAGState, context: str, answer: str, usage):
               f"Answer sentences:\n{numbered}")
     try:
         async with llm_slot:
-            res = await get_llm().generate(GROUNDING_PROMPT, [ChatMessage(role="user", content=prompt)])
-            usage = _add_usage({**state, "usage": usage})
+            checker = _checker()
+            res = await checker.generate(GROUNDING_PROMPT, [ChatMessage(role="user", content=prompt)])
+            usage = _add_usage({**state, "usage": usage}, checker)
     except LLMError as e:
         log.warning("Grounding check skipped (LLM failure): %s", e)
         return answer, usage

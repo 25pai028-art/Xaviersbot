@@ -9,8 +9,10 @@ from app.llm.base import ChatMessage, LLMError, LLMProvider, LLMResult, LLMUsage
 class OpenAIProvider(LLMProvider):
     name = "openai"
 
-    def __init__(self, *, api_key: str, base_url: str, timeout: float, **kw):
+    def __init__(self, *, api_key: str, base_url: str, timeout: float, reasoning_effort: str = "", **kw):
         super().__init__(**kw)
+        # Reasoning models (gpt-oss) spend output tokens thinking; "low" keeps a short answer from coming back empty.
+        self._extra = {"reasoning_effort": reasoning_effort} if reasoning_effort else {}
         if not api_key:
             raise LLMError("OPENAI_API_KEY is not set in .env")
         import openai  # lazy import
@@ -28,6 +30,7 @@ class OpenAIProvider(LLMProvider):
                 messages=self._messages(system, messages),
                 temperature=self.temperature,
                 max_completion_tokens=self.max_output_tokens,
+                extra_body=self._extra or None,
             )
         except self._sdk.OpenAIError as e:
             raise LLMError(f"OpenAI error: {e}", retryable=True) from e
@@ -47,6 +50,7 @@ class OpenAIProvider(LLMProvider):
                 max_completion_tokens=self.max_output_tokens,
                 stream=True,
                 stream_options={"include_usage": True},
+                extra_body=self._extra or None,
             )
             async for chunk in stream:
                 if chunk.usage:

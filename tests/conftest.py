@@ -9,3 +9,6 @@ os.environ["HF_HUB_OFFLINE"] = "1"  # never contact Hugging Face from tests (mod
 os.environ["HF_HUB_DISABLE_SYMLINKS_WARNING"] = "1"
 os.environ["CHAT_RATE_PER_MINUTE"] = "0"  # tests send many questions; the limiter is tested on its own
 os.environ["CHAT_RATE_PER_DAY"] = "0"
+# Tests never use the AI from the personal .env (Groq keys, models): fakes replace the laptop provider.
+os.environ["LLM_PROVIDER"] = "ollama"
+os.environ["CHECK_MODEL"] = ""
