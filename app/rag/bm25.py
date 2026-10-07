@@ -22,6 +22,16 @@ _DOTTED = re.compile(r"\b([a-z])\.(?=[a-z]\b|[a-z]{2,}\b)")  # b.com → bcom, b
 _TOKEN = re.compile(r"[a-z0-9]+|[^\W\d_a-z]+", re.UNICODE)
 
 
+_HONORIFICS = {"mr", "mrs", "ms", "miss", "dr", "fr", "prof", "sr", "sj", "rev", "br"}
+_ADDRESSES_PERSON = re.compile(r"\b(sir|madam|ma'?am|mam|miss|teacher|professor|prof|dr|mr|mrs|ms|fr|"
+                               r"who is|who's|contact|email|e-mail)\b", re.I)
+
+
+def _name_tokens(text: str) -> list[str]:
+    """Lower-case name words without titles: "Dr. Fr. David K Roy, SJ" -> ['david', 'k', 'roy']."""
+    return [w for w in re.findall(r"[a-z]+", text.lower()) if w not in _HONORIFICS]
+
+
 def tokenize(text: str) -> list[str]:
     text = _DOTTED.sub(r"\1", text.lower())
     text = re.sub(r"(?<=\d)[,\s](?=\d{3}\b)", "", text)  # 20,000 → 20000
@@ -34,6 +44,8 @@ class BM25Index:
         self._bm25 = None
         self._ids: list[str] = []
         self._size = -1
+        # Faculty profile pages (/author/…): name tokens -> chunk ids, to recognise people named in questions.
+        self._people: dict[tuple[str, ...], list[str]] = {}
 
     def _ensure(self) -> None:
         size = vectorstore.count()
@@ -44,12 +56,16 @@ class BM25Index:
                 return
             from rank_bm25 import BM25Okapi
 
-            ids, corpus = [], []
-            for cid, text, _meta in vectorstore.all_chunks():
+            ids, corpus, people = [], [], {}
+            for cid, text, meta in vectorstore.all_chunks():
                 ids.append(cid)
                 corpus.append(tokenize(text))
+                if "/author/" in str(meta.get("url", "")):
+                    name = tuple(_name_tokens(str(meta.get("title", ""))))
+                    if len(name) >= 2:
+                        people.setdefault(name, []).append(cid)
             self._bm25 = BM25Okapi(corpus) if corpus else None
-            self._ids, self._size = ids, size
+            self._ids, self._people, self._size = ids, people, size
             log.info("BM25 keyword index built over %d chunks", size)
 
     def warmup(self) -> None:
@@ -65,6 +81,23 @@ class BM25Index:
         scores = self._bm25.get_scores(terms)
         order = sorted(range(len(scores)), key=lambda i: scores[i], reverse=True)[:k]
         return [(self._ids[i], float(scores[i])) for i in order if scores[i] > 0]
+
+    def people_in(self, query: str) -> list[tuple[str, list[str]]]:
+        """Faculty named in the question: [(full name, profile chunk ids)]. A full name ("Nisarg Vyas") always
+        counts; a first name alone ("Nisarg sir") counts when it is rare (at most 3 people) and the question
+        addresses a person (sir, madam, dr, prof, who is…)."""
+        self._ensure()
+        q = set(_name_tokens(query))
+        full = [(" ".join(n), ids) for n, ids in self._people.items() if set(n) <= q]
+        if full:
+            return full
+        if not _ADDRESSES_PERSON.search(query):
+            return []
+        for first in q:
+            same = [(" ".join(n), ids) for n, ids in self._people.items() if n[0] == first]
+            if 0 < len(same) <= 3:
+                return same
+        return []
 
     def invalidate(self) -> None:
         self._size = -1

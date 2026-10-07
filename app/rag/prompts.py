@@ -114,7 +114,8 @@ def format_context(hits: list[Hit]) -> str:
     return "<context>\n" + "\n\n".join(blocks) + "\n</context>"
 
 
-def build_user_turn(question: str, hits: list[Hit], earlier: list[str] | None = None) -> str:
+def build_user_turn(question: str, hits: list[Hit], earlier: list[str] | None = None,
+                    people: list[str] | None = None) -> str:
     """Sources, then (for follow-ups like "and the fees?") the student's earlier questions as context only,
     the meaning of short forms in the question, then the question. The bot's earlier answers are never
     included: they come from the browser."""
@@ -124,6 +125,10 @@ def build_user_turn(question: str, hits: list[Hit], earlier: list[str] | None = 
     if earlier:
         listed = "\n".join(f"- {q.strip()[:300]}" for q in earlier)
         note = f"\n\nEarlier questions from this student (context only; do not answer them):\n{listed}"
+    if people and len(people) > 1:  # "Nisarg sir": two people of that name; answer for each, don't refuse
+        named = ", ".join(n.title() for n in people)
+        note += (f"\n\nThe question may mean any of these {len(people)} people on the college website: {named}. "
+                 "Give what the website says about each, one line each.")
     terms = glossary(" ".join([*(earlier or []), question]))
     if terms:
         note += "\n\nShort forms in the question: " + "; ".join(terms)

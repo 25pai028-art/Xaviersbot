@@ -413,3 +413,16 @@ def test_one_fee_for_several_semesters_must_be_stated():
     assert not check_answer("Rs. 50,000 covers Semesters I through IV.", src).ok
     assert not check_answer("The MSc AI fee is Rs. 50,000 for all four semesters.", src).ok
     assert check_answer("The MSc AI fee for 2026-27 is Rs. 50,000 for Semester 1.", src).ok
+
+
+def test_names_in_questions_are_recognised(monkeypatch):
+    from app.rag.bm25 import BM25Index, _name_tokens
+
+    assert _name_tokens("Dr. Fr. David K Roy, SJ") == ["david", "k", "roy"]
+    idx = BM25Index()
+    monkeypatch.setattr(idx, "_ensure", lambda: None)
+    idx._people = {("nisarg", "vyas"): ["1:0"], ("nisarg", "patil"): ["2:0"], ("pravida", "raja", "a", "c"): ["3:0"]}
+    assert idx.people_in("nisarg vyas") == [("nisarg vyas", ["1:0"])]
+    assert sorted(n for n, _ in idx.people_in("Who is Nisarg sir?")) == ["nisarg patil", "nisarg vyas"]
+    assert idx.people_in("What is the nisarg festival?") == []  # a first name alone, not addressing a person
+    assert idx.people_in("What is the BCA fee?") == []

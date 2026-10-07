@@ -11,7 +11,7 @@ from __future__ import annotations
 
 import math
 import time
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import datetime, timezone
 
 from app.config import get_settings
@@ -48,6 +48,7 @@ class Retrieval:
     best_score: float  # relevance grade of the best hit (0..1+)
     relevant: bool  # passed the similarity threshold
     time_sensitive: bool = False
+    people: list[str] = field(default_factory=list)  # faculty named in the question ("nisarg patil", "nisarg vyas")
 
 
 def _cosine(a: list[float], b: list[float]) -> float:
@@ -157,16 +158,60 @@ def hybrid_search(query: str, query_embedding: list[float], k: int | None = None
             h.signals["rank_score"] = rrf + weight * fresh + page
         candidates.append(h)
 
+    threshold = s.similarity_threshold
+    candidates = _people_first(candidates, grade_query, query_embedding, threshold)
     candidates.sort(key=lambda h: h.signals["rank_score"], reverse=True)
     best = max((h.signals["grade"] for h in candidates), default=0.0)
-    threshold = s.similarity_threshold
     good = [h for h in candidates if h.signals["grade"] >= threshold * 0.9]
     if time_sensitive:
         good = drop_outdated(good, threshold)
     good = _diverse(good)[: k * 2]
     hits = _with_continuations(_with_neighbours(good[:k], k), grade_query)
     return Retrieval(hits=_budget(hits, s.max_context_tokens),
-                     best_score=best, relevant=best >= threshold, time_sensitive=time_sensitive)
+                     best_score=best, relevant=best >= threshold, time_sensitive=time_sensitive,
+                     people=[n for n, _ in bm25_index.people_in(grade_query)])
+
+
+PERSON_PROFILE_BONUS = 1.0  # the profile page of the person asked about goes first
+PERSON_PAGE_BONUS = 0.5  # then college web pages that name them (department page: "Nisarg Vyas — Assistant Professor")
+PERSON_DOC_BONUS = 0.1  # documents naming them; NIRF staff tables list hundreds of names, so only a little
+
+
+def _people_first(candidates: list[Hit], query: str, query_embedding: list[float], threshold: float) -> list[Hit]:
+    """A question naming a faculty member: their profile and the pages naming them come first. Without this a
+    bare name ("nisarg vyas") matched long NIRF staff tables better than the short profile page."""
+    people = bm25_index.people_in(query)
+    if not people:
+        return candidates
+    names = [n for n, _ in people]
+    profile_ids = {cid for _, ids in people for cid in ids}
+    by_id = {h.chunk_id: h for h in candidates}
+    wanted = set(profile_ids)
+    for name in names:  # chunks that literally name the person, beyond the usual candidates
+        wanted |= {cid for cid, _ in bm25_index.search(name, 150)}
+    for cid, (text, meta, emb) in vectorstore.get_chunks([c for c in wanted if c not in by_id],
+                                                         with_embeddings=True).items():
+        h = Hit(chunk_id=cid, text=text, metadata=meta, score=_cosine(query_embedding, emb or []))
+        h.signals = {"cosine": round(h.score, 3), "keyword_coverage": 0.0, "rrf": 0.0, "grade": round(h.score, 3),
+                     "age_days": None, "rank_score": h.score}
+        by_id[cid] = h
+    out = []
+    for h in by_id.values():
+        text = h.text.lower()
+        names_here = [n for n in names if n in text or " ".join(reversed(n.split())) in text]
+        if h.chunk_id in profile_ids:
+            bonus = PERSON_PROFILE_BONUS
+        elif names_here:
+            bonus = PERSON_PAGE_BONUS if h.metadata.get("content_type") == "html" else PERSON_DOC_BONUS
+        else:
+            out.append(h)
+            continue
+        h.signals["person"] = names_here or names
+        # One scale for all of them (some came from the usual search, some were added here): bonus + relevance.
+        h.signals["rank_score"] = bonus + h.signals.get("grade", h.score)
+        h.signals["grade"] = max(h.signals.get("grade", 0.0), threshold)  # naming the person is relevant
+        out.append(h)
+    return out
 
 
 def content_year(meta: dict) -> int | None:

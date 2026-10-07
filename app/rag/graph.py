@@ -228,7 +228,8 @@ async def generate(state: RAGState) -> RAGState:
         hits = [state["verified_hit"]] + hits[: max(0, len(hits) - 1)]
     write({"type": "sources", "sources": _sources(hits)})
     s = get_settings()
-    messages = [ChatMessage(role="user", content=build_user_turn(state["question"], hits, _earlier(state)))]
+    messages = [ChatMessage(role="user", content=build_user_turn(state["question"], hits, _earlier(state),
+                                                                 state["retrieval"].people))]
     parts: list[str] = []
     try:
         async with llm_slot:
@@ -329,7 +330,8 @@ def _no_info(write, usage, reason: str) -> RAGState:
 async def _retry_figures(state: RAGState, hits: list[Hit], answer: str, wrong: list[str], usage):
     s = get_settings()
     messages = [
-        ChatMessage(role="user", content=build_user_turn(state["question"], hits, _earlier(state))),
+        ChatMessage(role="user", content=build_user_turn(state["question"], hits, _earlier(state),
+                                                         state["retrieval"].people)),
         ChatMessage(role="assistant", content=answer),
         ChatMessage(role="user", content=RETRY_PROMPT.format(wrong=", ".join(wrong[:5]))),
     ]
