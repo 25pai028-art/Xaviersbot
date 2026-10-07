@@ -89,13 +89,24 @@ _NON_LATIN = re.compile(r"[^\x00-\x7F]")
 _END = r"[\s!.?,:)🙂😊👍🙏]*$"
 SMALL_TALK: list[tuple[str, re.Pattern]] = [
     ("greeting", re.compile(r"^(hi+|hello+|hey+|hii+|helo|hlo|good (morning|afternoon|evening|day)|namaste|namaskar|"
-                            r"kem cho|hola|greetings|yo|नमस्ते|નમસ્તે)( there| bot| xavier'?s assistant)?" + _END, re.I)),
-    ("thanks", re.compile(r"^(thanks?( a lot| so much| you( so much| very much)?)?|thank u|thx|ty|tysm|dhanyavaa?d|"
-                          r"shukriya|aabhar|abhar|धन्यवाद|ધન્યવાદ|thanks? (for|that) .{0,30})" + _END, re.I)),
-    ("bye", re.compile(r"^(bye+|good ?bye|see (you|ya)( later)?|tata|take care|good night|that'?s all|nothing else|"
-                       r"no thanks?|no,? that'?s all)" + _END, re.I)),
-    ("how_are_you", re.compile(r"^(how are (you|u)|how r u|how'?s it going|kaise ho|kem cho majama|what'?s up|sup)( today)?"
-                               + _END, re.I)),
+                            r"kem cho|hola|greetings|yo|नमस्ते|નમસ્તે|(nice|pleased|glad) to meet (you|u))"
+                            r"( there| bot| xavier'?s assistant| too)?" + _END, re.I)),
+    ("thanks", re.compile(r"^(thanks?( a lot| so much| you( so much| very much| a lot)?)?|thank u|thx|ty|tysm|dhanyavaa?d|"
+                          r"shukriya|aabhar|abhar|धन्यवाद|ધન્યવાદ|thanks? (for|that) .{0,40}|"
+                          r"thank (you|u)( so much| very much| a lot)? for .{0,40}|"
+                          # compliments get the same friendly reply
+                          r"(you are|you'?re|u r|ur) (so |very |really )?(helpful|great|awesome|amazing|the best|nice|"
+                          r"good|smart|brilliant)|(great|good|nice) (job|work|answer)|well done|very helpful|"
+                          r"that (was|is) (very |really )?(helpful|useful|great))" + _END, re.I)),
+    ("bye", re.compile(r"^(bye+|bye bye|good ?bye|see (you|ya|u)( later| tomorrow| soon| again| around)?|tata|"
+                       r"take care|good night|gn|that'?s all|that is all|nothing else|no thanks?|no,? that'?s all|"
+                       r"talk to you later|ttyl|catch you later|have a (nice|good|great) day)" + _END, re.I)),
+    ("how_are_you", re.compile(
+        r"^(how (are|r) (you|u)( doing| keeping| feeling)?|how (have|'?ve) (you|u) been|how'?s it going|"
+        r"how is it going|how do you do|how are things|how'?s (everything|life)|how is (everything|life)|"
+        r"how (is|was|'?s) (your|ur) day( going)?|are (you|u) (fine|ok(ay)?|good|well|alright)|"
+        r"hope (you|u) (are|r|'re)( doing)? (well|good|fine|great)|kaise ho|kaisa hai|kem cho majama|"
+        r"what'?s up|whats up|wassup|sup)( today| now)?" + _END, re.I)),
     ("identity", re.compile(r"^(who are (you|u)|what are you|what can you do|what do you do|are you (an? )?(ai|bot|robot|"
                             r"human|real person|real|chatgpt|gpt|a person)|who (made|created|built|developed) you|"
                             r"what('?s| is) your name|your name|who is this|what is this|who am i (talking|chatting|speaking) "
@@ -154,11 +165,14 @@ def small_talk_kind(question: str) -> str:
         for kind, pattern in SMALL_TALK:
             if pattern.match(text):
                 return kind
-        rest = _LEADING_GREETING.sub("", text)
-        if rest != text:
-            for kind, pattern in SMALL_TALK:
-                if pattern.match(rest):
-                    return "greeting" if kind == "ack" else kind  # "hi, ok" is a greeting
+        for lead in (_LEADING_GREETING, _LEADING_ACK):  # "hi, how are you doing?" / "ok bye"
+            rest = lead.sub("", text)
+            if rest != text:
+                for kind, pattern in SMALL_TALK:
+                    if pattern.match(rest):
+                        if kind == "ack":  # "hi, ok" is a greeting; "ok ok" an acknowledgement
+                            return "greeting" if lead is _LEADING_GREETING else "ack"
+                        return kind
     return ""
 
 

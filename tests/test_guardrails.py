@@ -155,3 +155,25 @@ async def test_graph_answers_small_talk_instantly(monkeypatch):
     assert text.startswith("Alright!") and final["answered"] is True
     text, _ = await _run("hi", monkeypatch)
     assert "Xavier's Assistant" in text
+
+
+@pytest.mark.parametrize("q, kind", [
+    ("how are you doing", "how_are_you"), ("hey how are you doing today?", "how_are_you"),
+    ("how have you been", "how_are_you"), ("hope you are doing well", "how_are_you"),
+    ("good morning, how are you doing?", "how_are_you"), ("how r u doing", "how_are_you"),
+    ("are you fine", "how_are_you"), ("how is your day", "how_are_you"), ("how do you do", "how_are_you"),
+    ("nice to meet you", "greeting"), ("thank you so much for the help", "thanks"),
+    ("thanks, that was helpful", "thanks"), ("you are helpful", "thanks"), ("great job", "thanks"),
+    ("ok bye", "bye"), ("see you tomorrow", "bye"), ("have a nice day", "bye"),
+])
+def test_everyday_chat_is_answered_without_searching(q, kind):
+    assert check_input(q).small_talk == kind
+
+
+@pytest.mark.parametrize("q", [
+    "How are the fees paid?", "how are you doing the admissions this year", "Are you open on Sunday?",
+    "thank you, what is the BCA fee?", "ok what is the hostel fee", "How is the placement record?",
+    "are you able to tell me the exam dates", "see you at the admission office?",
+])
+def test_questions_that_look_like_chat_are_still_answered(q):
+    assert check_input(q).kind == "ok"
