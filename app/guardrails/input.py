@@ -58,6 +58,29 @@ _MISCONDUCT = [
 ]
 MISCONDUCT = re.compile("|".join(f"(?:{p})" for p in _MISCONDUCT), re.IGNORECASE | re.DOTALL)
 
+# ---------------------------------------------------------------- trick prompts (prompt injection)
+# Attempts to change the assistant's rules or make it reveal them. Answered with a fixed reply, no AI call.
+_INJECTION = [
+    # "ignore / forget your previous instructions"
+    r"\b(ignore|disregard|forget|override|bypass|skip|drop)\b.{0,30}\b(previous|prior|above|earlier|all|your|these|"
+    r"those|any|the)\b.{0,20}\b(instructions?|rules?|prompts?|guidelines?|directions?|restrictions?|constraints?|"
+    r"policies|programming)\b",
+    # "show me your system prompt", "repeat your instructions"
+    r"\b(system|hidden|initial|original|secret|developer|internal)\s+(prompt|instructions?|message|rules)\b",
+    r"\b(reveal|show|print|display|repeat|output|leak|dump|share|tell me|what (is|are))\b.{0,20}\byour\s+"
+    r"(instructions?|rules|prompt|guidelines|programming|configuration|training)\b",
+    # "you are now DAN", "pretend you are…", "from now on act as…"
+    r"\b(you are now|you'?re now|from now on,? (you|act|behave|respond|answer|reply)|pretend (to be|you are|you'?re)|"
+    r"role-?play as|act as if you|behave as if you|developer mode|jailbreak|dan mode|do anything now)\b",
+    r"\bact as (an? |my |the )?(unrestricted|unfiltered|uncensored|jailbroken|evil|different|new|dan)\b",
+    r"\b(without|no|ignore) (any |all )?(restrictions|filters|rules|limits|censorship)\b",
+    # fake system / tool markup
+    r"</?\s*(system|context|source|instructions?)\s*>|\[\s*(system|inst)\s*\]|#{2,}\s*(system|instruction)",
+    r"\bnew (instructions?|rules)\s*:",
+]
+INJECTION = re.compile("|".join(f"(?:{p})" for p in _INJECTION), re.IGNORECASE | re.DOTALL)
+
+
 # ---------------------------------------------------------------- out of scope
 _OFF_TOPIC = [
     r"\b(ipl|cricket|football|fifa|world cup|match score|live score)\b", r"\bweather\b", r"\b(movie|film|web ?series|netflix|song|lyrics)s?\b",
@@ -146,7 +169,7 @@ _LEADING_ACK = re.compile(r"^(ok+a*y*|okie|alright|fine|got it|cool|great|thanks
 
 @dataclass
 class GuardResult:
-    kind: Literal["ok", "misconduct", "off_topic", "abuse_only", "small_talk"]
+    kind: Literal["ok", "misconduct", "injection", "off_topic", "abuse_only", "small_talk"]
     question: str  # cleaned question (profanity removed)
     abusive: bool = False
     small_talk: str = ""  # greeting | thanks | bye | how_are_you | user_is_fine | identity | ack
@@ -196,6 +219,8 @@ def check_input(question: str) -> GuardResult:
     if kind:
         return GuardResult(kind="small_talk", question=q, small_talk=kind)
     q = _LEADING_ACK.sub("", q)  # "ok, what about hostel?" → "what about hostel?"
+    if INJECTION.search(q):
+        return GuardResult(kind="injection", question=q)
     if MISCONDUCT.search(q):
         return GuardResult(kind="misconduct", question=q)
     abusive = bool(PROFANITY.search(q))

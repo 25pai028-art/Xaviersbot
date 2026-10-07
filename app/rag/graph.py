@@ -103,7 +103,7 @@ async def guard(state: RAGState) -> RAGState:
 
 
 def after_guard(state: RAGState) -> str:
-    return {"misconduct": "refuse", "off_topic": "out_of_scope", "abuse_only": "calm",
+    return {"misconduct": "refuse", "injection": "trick", "off_topic": "out_of_scope", "abuse_only": "calm",
             "small_talk": "small_talk"}.get(state["guard"], "prepare")
 
 
@@ -116,6 +116,11 @@ async def small_talk(state: RAGState) -> RAGState:
 async def refuse(state: RAGState) -> RAGState:
     msg = MISCONDUCT_MESSAGE.format(exam_office=get_settings().guard_exam_office_contact)
     return _fixed_reply(msg, "guard: policy violation")
+
+
+async def trick(state: RAGState) -> RAGState:
+    """Attempt to change or reveal the assistant's rules: a fixed reply, nothing revealed, no AI call."""
+    return _fixed_reply(OUT_OF_SCOPE_MESSAGE.format(bot_name=get_settings().app_name), "guard: trick prompt")
 
 
 async def out_of_scope(state: RAGState) -> RAGState:
@@ -157,6 +162,11 @@ async def verified(state: RAGState) -> RAGState:
 
 def after_verified(state: RAGState) -> str:
     return END if state.get("verified_direct") else "retrieve"
+
+
+def _earlier(state: RAGState) -> list[str]:
+    """The student's own earlier questions (the service drops the bot's answers and trick prompts)."""
+    return [m.content for m in state.get("history", []) if m.role == "user"][-get_settings().chat_history_turns:]
 
 
 def _add_usage(state: RAGState) -> dict:
@@ -211,8 +221,7 @@ async def generate(state: RAGState) -> RAGState:
         hits = [state["verified_hit"]] + hits[: max(0, len(hits) - 1)]
     write({"type": "sources", "sources": _sources(hits)})
     s = get_settings()
-    history = state.get("history", [])[-2 * s.chat_history_turns:]
-    messages = history + [ChatMessage(role="user", content=build_user_turn(state["question"], hits))]
+    messages = [ChatMessage(role="user", content=build_user_turn(state["question"], hits, _earlier(state)))]
     parts: list[str] = []
     try:
         async with llm_slot:
@@ -309,9 +318,8 @@ def _no_info(write, usage, reason: str) -> RAGState:
 
 async def _retry_figures(state: RAGState, hits: list[Hit], answer: str, wrong: list[str], usage):
     s = get_settings()
-    history = state.get("history", [])[-2 * s.chat_history_turns:]
-    messages = history + [
-        ChatMessage(role="user", content=build_user_turn(state["question"], hits)),
+    messages = [
+        ChatMessage(role="user", content=build_user_turn(state["question"], hits, _earlier(state))),
         ChatMessage(role="assistant", content=answer),
         ChatMessage(role="user", content=RETRY_PROMPT.format(wrong=", ".join(wrong[:5]))),
     ]
@@ -395,6 +403,7 @@ def build_graph():
     g.add_node("guard", guard)
     g.add_node("refuse", refuse)
     g.add_node("out_of_scope", out_of_scope)
+    g.add_node("trick", trick)
     g.add_node("calm", calm)
     g.add_node("small_talk", small_talk)
     g.add_node("prepare", prepare)
@@ -405,8 +414,8 @@ def build_graph():
     g.add_node("generate", generate)
     g.add_node("verify", verify)
     g.add_edge(START, "guard")
-    g.add_conditional_edges("guard", after_guard, ["prepare", "refuse", "out_of_scope", "calm", "small_talk"])
-    for node in ("refuse", "out_of_scope", "calm", "small_talk"):
+    g.add_conditional_edges("guard", after_guard, ["prepare", "refuse", "trick", "out_of_scope", "calm", "small_talk"])
+    for node in ("refuse", "trick", "out_of_scope", "calm", "small_talk"):
         g.add_edge(node, END)
     g.add_edge("prepare", "verified")
     g.add_conditional_edges("verified", after_verified, ["retrieve", END])

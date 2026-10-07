@@ -677,7 +677,12 @@ svg { width: 20px; height: 20px; fill: none; stroke: currentColor; stroke-width:
         body: JSON.stringify({ message: question, history, language: lang }),
       });
       if (!res.ok || !res.body) {
-        if (res.status === 429) fail("Many people are asking questions right now. Please try again in a minute.");
+        if (res.status === 429) {
+          // Too many questions from this visitor: the server says which limit (per minute / per day).
+          let msg = "Many people are asking questions right now. Please try again in a minute.";
+          try { const j = await res.json(); if (j && typeof j.detail === "string") msg = j.detail; } catch (e) {}
+          fail(msg);
+        }
         else if (res.status === 422) fail("That message is too long. Please shorten it to under " + (cfg.max_chars || 1000) + " characters.");
         else fail("Sorry, I couldn't reach the assistant just now. Please try again in a moment.");
       } else {

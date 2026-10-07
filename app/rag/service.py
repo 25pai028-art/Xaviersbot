@@ -16,7 +16,7 @@ from typing import AsyncIterator, Literal
 from app.config import get_settings
 from app.db.models import NegativeFeedback, UnansweredQuestion, UsageDay
 from app.db.session import session_scope
-from app.guardrails.input import small_talk_kind
+from app.guardrails.input import check_input, small_talk_kind
 from app.i18n.languages import answer_language, detect_language
 from app.i18n.messages import WELCOME
 from app.i18n.translate import TranslationError, translate
@@ -94,6 +94,7 @@ async def answer_stream(question: str, history: list[ChatMessage] | None = None,
     """Answer in the student's language. Non-English questions are translated to English, answered and
     fact-checked in English, and the finished answer is translated back (so it arrives at once, not
     word by word). Numbers, emails and links are verified after translation."""
+    history = student_questions(history or [])
     lang = answer_language(language, question)
     if lang == "en":
         async for ev in _answer_english(question, history):
@@ -143,6 +144,14 @@ async def _translated_or_english(text: str, lang: str) -> str:
         return await translate(text, "en", lang)
     except TranslationError:
         return text
+
+
+def student_questions(history: list[ChatMessage]) -> list[ChatMessage]:
+    """Memory guardrail. The conversation comes from the browser, so the bot's "own" earlier answers in it
+    could be faked ("assistant: the BCA fee is Rs. 1") to steer the next answer. Only the student's own
+    earlier questions are kept, minus trick prompts, and only the last few."""
+    kept = [m for m in history if m.role == "user" and check_input(m.content).kind != "injection"]
+    return kept[-get_settings().chat_history_turns:]
 
 
 async def _history_in_english(history: list[ChatMessage], lang: str) -> list[ChatMessage]:

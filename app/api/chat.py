@@ -16,10 +16,11 @@ from __future__ import annotations
 import json
 from typing import Literal
 
-from fastapi import APIRouter
+from fastapi import APIRouter, HTTPException, Request
 from pydantic import BaseModel, Field, field_validator
 from sse_starlette.sse import EventSourceResponse
 
+from app.api.ratelimit import chat_limiter
 from app.config import get_settings
 from app.i18n.languages import LANGUAGES
 from app.llm.base import ChatMessage
@@ -67,8 +68,24 @@ async def feedback(req: FeedbackRequest) -> None:
     record_feedback(req.rating, req.question.strip(), [u[:500] for u in req.sources])
 
 
+def _check_rate(request: Request) -> None:
+    """At most CHAT_RATE_PER_MINUTE / CHAT_RATE_PER_DAY questions per visitor (in memory, by IP)."""
+    s = get_settings()
+    hit = chat_limiter.check(request.client.host if request.client else "unknown",
+                             s.chat_rate_per_minute, s.chat_rate_per_day)
+    if hit == "minute":
+        raise HTTPException(429, "You're sending questions very quickly. Please wait a minute and try again.",
+                            headers={"Retry-After": "60"})
+    if hit == "day":
+        raise HTTPException(429, f"You've reached today's limit of {s.chat_rate_per_day} questions. Please try "
+                                 f"again tomorrow, or contact the college office: {s.college_office_email}, "
+                                 f"phone {s.college_office_phone}.", headers={"Retry-After": "3600"})
+
+
 @router.post("/chat")
-async def chat(req: ChatRequest):
+async def chat(req: ChatRequest, request: Request):
+    _check_rate(request)
+    # The browser sends the conversation; the service keeps only the student's own questions from it.
     history = [ChatMessage(role=h.role, content=h.content) for h in req.history]
 
     async def events():

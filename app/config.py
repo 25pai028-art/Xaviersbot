@@ -141,6 +141,9 @@ class Settings(BaseSettings):
     # --- API ---
     cors_origins: CsvList = Field(default_factory=lambda: ["https://sxca.edu.in", "http://localhost:8000"])
     max_message_chars: int = 1000
+    # Questions one visitor (IP address) may send; 0 = no limit. Kept in memory only.
+    chat_rate_per_minute: int = 10
+    chat_rate_per_day: int = 100
 
     # --- Languages ---
     translation_provider: str = "auto"  # auto (LLM, IndicTrans2 as backup) | llm | indictrans2 | off

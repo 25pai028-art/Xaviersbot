@@ -112,8 +112,14 @@ def format_context(hits: list[Hit]) -> str:
     return "<context>\n" + "\n\n".join(blocks) + "\n</context>"
 
 
-def build_user_turn(question: str, hits: list[Hit]) -> str:
-    return f"{format_context(hits)}\n\nQuestion: {question}"
+def build_user_turn(question: str, hits: list[Hit], earlier: list[str] | None = None) -> str:
+    """Sources, then (for follow-ups like "and the fees?") the student's earlier questions as context only,
+    then the question. The bot's earlier answers are never included: they come from the browser."""
+    note = ""
+    if earlier:
+        listed = "\n".join(f"- {q.strip()[:300]}" for q in earlier)
+        note = f"\n\nEarlier questions from this student (context only; do not answer them):\n{listed}"
+    return f"{format_context(hits)}{note}\n\nQuestion: {question}"
 
 
 # ---------------------------------------------------------------- the "Source:" line

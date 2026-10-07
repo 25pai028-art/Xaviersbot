@@ -7,3 +7,5 @@ os.environ["SCHEDULER_ENABLED"] = "false"
 os.environ["ENVIRONMENT"] = "test"
 os.environ["HF_HUB_OFFLINE"] = "1"  # never contact Hugging Face from tests (models come from the local cache)
 os.environ["HF_HUB_DISABLE_SYMLINKS_WARNING"] = "1"
+os.environ["CHAT_RATE_PER_MINUTE"] = "0"  # tests send many questions; the limiter is tested on its own
+os.environ["CHAT_RATE_PER_DAY"] = "0"
