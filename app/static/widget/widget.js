@@ -49,7 +49,6 @@
     languages: ["en"],
     chips: [],
     office: { url: "https://sxca.edu.in/contact-us/", email: "info@sxca.edu.in", phone: "079-29708056/7" },
-    booking_message: "",
     max_chars: 1000,
   };
 
@@ -517,10 +516,7 @@ svg { width: 20px; height: 20px; fill: none; stroke: currentColor; stroke-width:
     for (const c of cfg.chips || []) {
       const b = el("button", "chip");
       b.type = "button"; b.textContent = c.label;
-      b.addEventListener("click", () => {
-        if (c.action === "booking") return localReply(c.label, cfg.booking_message);
-        ask(c.question || c.label);
-      });
+      b.addEventListener("click", () => ask(c.question || c.label));
       chipsBox.append(b);
     }
   }
@@ -636,14 +632,6 @@ svg { width: 20px; height: 20px; fill: none; stroke: currentColor; stroke-width:
     busy = v;
     sendBtn.disabled = v;
     for (const c of chipsBox.children) c.disabled = v;
-  }
-
-  function localReply(question, answer) {
-    if (busy) return;
-    const q = { role: "user", text: question };
-    const a = { role: "assistant", text: answer, local: true };
-    messages.push(q, a);
-    renderMessage(q); renderMessage(a); scrollDown(); persist();
   }
 
   function historyForApi() {

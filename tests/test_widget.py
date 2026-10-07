@@ -24,9 +24,10 @@ def test_widget_config_has_branding_and_chips():
     assert cfg["bot_name"] == "Xavier's Assistant"
     assert cfg["logo_url"] == "/static/widget/crest.png"
     labels = [c["label"] for c in cfg["chips"]]
-    for want in ("Admissions", "Courses", "Fees", "Exams", "Hostel", "Contact", "Book a Meeting", "Faculty"):
+    for want in ("Admissions", "Courses", "Fees", "Exams", "Hostel", "Contact", "Faculty"):
         assert want in labels
-    assert all("question" in c or c.get("action") == "booking" for c in cfg["chips"])
+    assert "Book a Meeting" not in labels  # removed until faculty booking (Phase 6) is built
+    assert all("question" in c for c in cfg["chips"])
     assert cfg["office"]["url"].startswith("https://sxca.edu.in/")
     assert cfg["languages"][0] == "en" and {"hi", "gu", "ml", "ta"} <= set(cfg["languages"])
     assert "Xavier's Assistant" in cfg["welcome"]
