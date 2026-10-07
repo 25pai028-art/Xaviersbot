@@ -205,3 +205,23 @@ async def test_who_are_you_in_any_language_is_answered_at_once(monkeypatch):
     events = [e async for e in service.answer_stream("നിങ്ങൾ ആരാണ്?", [], language="auto")]
     assert [e.type for e in events] == ["language", "token", "done"]
     assert events[1].text == WELCOME["ml"]
+
+
+async def test_fixed_replies_are_hand_written_not_translated(monkeypatch):
+    from app.i18n.messages import NO_INFO
+    from app.rag import service
+    from app.rag.prompts import no_info_message
+
+    async def english(question, history=None):
+        yield service.ChatEvent(type="token", text=no_info_message())
+        yield service.ChatEvent(type="done", answered=False)
+
+    def boom(*_a, **_k):
+        raise AssertionError("fixed replies must not be machine-translated (it garbled the contacts)")
+
+    monkeypatch.setattr(service, "_answer_english", english)
+    monkeypatch.setattr(service, "translate", boom)
+    monkeypatch.setattr(service, "detect_language", lambda text, preferred=None: "en")
+    events = [e async for e in service.answer_stream("bus timings?", [], language="ml")]
+    text = "".join(e.text for e in events if e.type == "token")
+    assert text.startswith(NO_INFO["ml"].split("{")[0]) and "info@sxca.edu.in" in text and "079-29708056/7" in text

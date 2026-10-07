@@ -18,10 +18,11 @@ from app.db.models import NegativeFeedback, UnansweredQuestion, UsageDay
 from app.db.session import session_scope
 from app.guardrails.input import check_input, small_talk_kind
 from app.i18n.languages import answer_language, detect_language
-from app.i18n.messages import WELCOME
+from app.i18n.messages import NO_INFO, OUT_OF_SCOPE, WELCOME
 from app.i18n.translate import TranslationError, translate
 from app.llm.base import ChatMessage
 from app.rag.graph import BUSY_MESSAGE, build_graph
+from app.rag.prompts import OUT_OF_SCOPE_MESSAGE, no_info_message
 
 log = logging.getLogger(__name__)
 
@@ -130,13 +131,29 @@ async def answer_stream(question: str, history: list[ChatMessage] | None = None,
         else:
             yield ev  # sources, status
     if answer.strip():
-        yield ChatEvent(type="status", text="Translating the answer…")
-        try:
-            answer = await translate(answer.strip(), "en", lang)
-        except TranslationError:
-            answer = answer.strip() + TRANSLATION_FAILED_NOTE
+        fixed = _fixed_reply_in(lang, answer.strip())
+        if fixed:  # hand-written in this language: instant, and the contacts can't be garbled
+            answer = fixed
+        else:
+            yield ChatEvent(type="status", text="Translating the answer…")
+            try:
+                answer = await translate(answer.strip(), "en", lang)
+            except TranslationError:
+                answer = answer.strip() + TRANSLATION_FAILED_NOTE
         yield ChatEvent(type="token", text=answer)
     yield done
+
+
+def _fixed_reply_in(lang: str, answer: str) -> str | None:
+    """The hand-written version of a fixed English reply ("not found: contact the office", "only college
+    questions"), or None for any other answer."""
+    s = get_settings()
+    if answer == no_info_message() and lang in NO_INFO:
+        return NO_INFO[lang].format(email=s.college_office_email, phone=s.college_office_phone,
+                                    url=s.college_office_url)
+    if answer == OUT_OF_SCOPE_MESSAGE.format(bot_name=s.app_name) and lang in OUT_OF_SCOPE:
+        return OUT_OF_SCOPE[lang]
+    return None
 
 
 async def _translated_or_english(text: str, lang: str) -> str:
