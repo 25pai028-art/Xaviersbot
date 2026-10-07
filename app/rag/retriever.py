@@ -164,7 +164,8 @@ def hybrid_search(query: str, query_embedding: list[float], k: int | None = None
     if time_sensitive:
         good = drop_outdated(good, threshold)
     good = _diverse(good)[: k * 2]
-    return Retrieval(hits=_budget(_with_neighbours(good[:k], k), s.max_context_tokens),
+    hits = _with_continuations(_with_neighbours(good[:k], k), grade_query)
+    return Retrieval(hits=_budget(hits, s.max_context_tokens),
                      best_score=best, relevant=best >= threshold, time_sensitive=time_sensitive)
 
 
@@ -239,6 +240,41 @@ def _with_neighbours(hits: list[Hit], k: int) -> list[Hit]:
         return hits
     neighbour = Hit(chunk_id=nxt_id, text=nxt[0], metadata=nxt[1], score=top.score, signals={"neighbour_of": top.chunk_id})
     return [top, neighbour] + hits[1:k]
+
+
+TAIL_CHARS = 300  # "the end of a chunk": where a table's heading sits when its rows went to the next chunk
+# Words in every programme heading ("MSc (…)", "Master of Science"): they don't say *which* table.
+_COMMON_HEADING_WORDS = {"msc", "bsc", "ma", "ba", "bcom", "mcom", "master", "bachelor", "science", "arts",
+                         "commerce", "programme", "programmes", "college", "xavier", "academic", "year"}
+
+
+def _with_continuations(hits: list[Hit], query: str) -> list[Hit]:
+    """A chunk that *ends* with what was asked about ("…MSc (BIG DATA ANALYTICS) / MSc (ARTIFICIAL
+    INTELLIGENCE)") has that table's rows in the next chunk: add it right after, and put the pair first so
+    the context budget keeps it. Without it the model sees the heading but no fee, and guesses."""
+    from app.rag.query import TOPIC_WORDS
+
+    # Only the subject asked about (a programme, a name): years and topic words ("fee") end every chunk.
+    asked = {t for t in tokenize(query) if not t.isdigit() and t not in TOPIC_WORDS}
+    want = set()
+    for t in asked:
+        want |= _SPELLED_OUT.get(t, {t})
+    want -= _COMMON_HEADING_WORDS
+    seen = {h.chunk_id for h in hits}
+    pairs, rest = [], []
+    for h in hits:
+        src, idx = h.metadata.get("source_id"), h.metadata.get("chunk_index")
+        body, tail = set(tokenize(h.text[:-TAIL_CHARS])), set(tokenize(h.text[-TAIL_CHARS:]))
+        only_at_end = {w for w in want if w in tail and w not in body}
+        nxt_id = f"{src}:{int(idx) + 1}" if src is not None and idx is not None else None
+        nxt = vectorstore.get_chunks([nxt_id]).get(nxt_id) if only_at_end and nxt_id not in seen else None
+        if nxt:
+            seen.add(nxt_id)
+            pairs += [h, Hit(chunk_id=nxt_id, text=nxt[0], metadata=nxt[1], score=h.score,
+                             signals={"continuation_of": h.chunk_id})]
+        else:
+            rest.append(h)
+    return pairs + rest
 
 
 def _budget(hits: list[Hit], max_tokens: int) -> list[Hit]:

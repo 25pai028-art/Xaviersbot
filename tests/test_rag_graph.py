@@ -378,3 +378,18 @@ def test_more_ways_of_saying_not_found(text):
 
 def test_ordinary_negative_sentences_are_answers():
     assert not is_no_info_answer("Admission does not require an entrance test for B.Com.")
+
+
+def test_a_chunk_ending_with_the_asked_programme_brings_its_table(monkeypatch):
+    from app.rag import retriever
+
+    head = "Self-Financed (UG/PG) Programmes " + "x " * 400 + "Academic Year 2026-27 MSc (BIG DATA ANALYTICS) MSc (ARTIFICIAL INTELLIGENCE)"
+    other = "MSc (MICROBIOLOGY) Grand Total 50,000 " + "y " * 400 + "Academic Year 2026-27 MSc (PHYSICS)"
+    table = "Stream & Programme: MSc (ARTIFICIAL INTELLIGENCE) Fees Head: Grand Total; Approved Fee (Rs.): 50,000"
+    store = {"9:3": (table, {"source_id": 9, "chunk_index": 3}), "8:1": ("PHYSICS table", {"source_id": 8, "chunk_index": 1})}
+    monkeypatch.setattr(retriever.vectorstore, "get_chunks", lambda ids: {i: store[i] for i in ids if i in store})
+    hits = [Hit(chunk_id="8:0", text=other, metadata={"source_id": 8, "chunk_index": 0}, score=0.8),
+            Hit(chunk_id="9:2", text=head, metadata={"source_id": 9, "chunk_index": 2}, score=0.7)]
+    out = retriever._with_continuations(hits, "and what about MSc AI? fee 2026-27")
+    # the AI heading + its table come first; a chunk that merely ends with "2026-27 MSc" gets nothing
+    assert [h.chunk_id for h in out] == ["9:2", "9:3", "8:0"]
