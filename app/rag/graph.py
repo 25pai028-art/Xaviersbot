@@ -281,6 +281,9 @@ async def verify(state: RAGState) -> RAGState:
             answer = grounded
             write({"type": "replace", "text": answer})
 
+    # Checks may have left only "the website does not list…": then it is a refusal, with the office contacts.
+    if _just_a_refusal(answer):
+        return _no_info(write, usage, "model found no answer in the sources")
     out = {"answer": answer, "usage": usage, **_stale_note(state, hits, answer)}
     if is_no_info_answer(answer):  # answered in part: the admin still sees the gap
         out.update(answered=False, reason="model found only part of the answer in the sources")

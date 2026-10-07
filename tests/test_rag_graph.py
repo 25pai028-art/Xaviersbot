@@ -337,3 +337,10 @@ def test_source_line_fixes_roman_numerals_from_file_names():
     meta = {"title": "Notice For Students Inaugural Assembly For Sem Iii V", "content_type": "pdf"}
     assert source_label(meta) == "Notice For Students Inaugural Assembly For Sem III V"
     assert source_label({"title": "Vision and Mission", "content_type": "pdf"}) == "Vision and Mission"
+
+
+async def test_an_answer_reduced_to_a_refusal_gets_the_office_contacts(monkeypatch):
+    llm = Judging("The college website does not list the hostel fee.\n- The hostel fee is paid at the start of the year.",
+                  "1 NOT")  # the checker removes the made-up line; only the 'does not list' sentence is left
+    _, final = await _run_with(monkeypatch, llm, question="What is the hostel fee?")
+    assert final["answered"] is False and "info@sxca.edu.in" in final["answer"]
