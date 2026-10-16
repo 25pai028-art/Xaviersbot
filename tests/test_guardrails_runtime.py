@@ -128,3 +128,25 @@ def test_checking_model_is_built_with_low_reasoning_for_gpt_oss():
     answer, checker = build_provider(s), build_provider(s, "openai/gpt-oss-120b")
     assert answer.model == "qwen/qwen3.8-27b" and answer._extra == {}
     assert checker.model == "openai/gpt-oss-120b" and checker._extra == {"reasoning_effort": "low"}
+
+
+def test_question_texts_are_deleted_after_five_days():
+    from datetime import timedelta
+
+    from sqlalchemy import select
+
+    from app.db.models import NegativeFeedback, UnansweredQuestion, utcnow
+    from app.db.session import session_scope
+    from app.jobs.scheduler import cleanup
+
+    assert get_settings().retention_days == 5
+    now = utcnow()
+    with session_scope() as db:
+        db.add_all([UnansweredQuestion(question="old-q", reason="x", created_at=now - timedelta(days=6)),
+                    UnansweredQuestion(question="new-q", reason="x", created_at=now - timedelta(days=4)),
+                    NegativeFeedback(question="old-f", sources="", created_at=now - timedelta(days=6)),
+                    NegativeFeedback(question="new-f", sources="", created_at=now - timedelta(days=4))])
+    cleanup()
+    with session_scope() as db:
+        kept = set(db.scalars(select(UnansweredQuestion.question))) | set(db.scalars(select(NegativeFeedback.question)))
+    assert {"new-q", "new-f"} <= kept and not {"old-q", "old-f"} & kept

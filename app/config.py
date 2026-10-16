@@ -131,7 +131,7 @@ class Settings(BaseSettings):
     admin_max_failed_logins: int = 5
     admin_lockout_minutes: int = 15
     upload_max_mb: float = 20.0
-    retention_days: int = 30  # unanswered / thumbs-down question texts are deleted after this
+    retention_days: int = 5  # unanswered / thumbs-down question texts are deleted after this many days
 
     # --- Background jobs ---
     scheduler_enabled: bool = True

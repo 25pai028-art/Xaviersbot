@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import logging
 from datetime import datetime, timedelta
+from zoneinfo import ZoneInfo
 
 from sqlalchemy import delete
 
@@ -16,6 +17,7 @@ from app.db.session import session_scope
 
 log = logging.getLogger(__name__)
 TIMEZONE = "Asia/Kolkata"
+CLEANUP_EVERY_HOURS = 6
 _scheduler = None
 
 
@@ -47,15 +49,19 @@ def start() -> None:
         return
     from apscheduler.schedulers.background import BackgroundScheduler
     from apscheduler.triggers.cron import CronTrigger
+    from apscheduler.triggers.interval import IntervalTrigger
 
     _scheduler = BackgroundScheduler(timezone=TIMEZONE)
     _scheduler.add_job(scheduled_crawl, CronTrigger(day_of_week=s.crawl_schedule_day, hour=s.crawl_schedule_hour,
                                                     minute=0, timezone=TIMEZONE), id="crawl", max_instances=1,
                        coalesce=True, misfire_grace_time=3600)
-    _scheduler.add_job(cleanup, CronTrigger(hour=3, minute=30, timezone=TIMEZONE), id="cleanup", coalesce=True)
+    # At start-up and then every 6 hours: a laptop is rarely on at a fixed night-time hour, so a once-a-day
+    # job could miss every day and old question texts would never be deleted.
+    _scheduler.add_job(cleanup, IntervalTrigger(hours=CLEANUP_EVERY_HOURS, timezone=TIMEZONE), id="cleanup",
+                       coalesce=True, next_run_time=datetime.now(ZoneInfo(TIMEZONE)))
     _scheduler.start()
-    log.info("Scheduler started: re-crawl %s at %02d:00, cleanup daily 03:30 (%s)", s.crawl_schedule_day,
-             s.crawl_schedule_hour, TIMEZONE)
+    log.info("Scheduler started: re-crawl %s at %02d:00, privacy cleanup now and every %d h (%s)",
+             s.crawl_schedule_day, s.crawl_schedule_hour, CLEANUP_EVERY_HOURS, TIMEZONE)
 
 
 def stop() -> None:

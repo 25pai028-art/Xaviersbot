@@ -167,7 +167,7 @@ Without these models, only the chat LLM translates. The IndicTrans2 model code i
 | Upload | Add PDF, DOCX, TXT, PNG or JPG files. They are checked for the real file type, stored outside the web folder, and indexed within a minute |
 | Crawl | **Re-crawl now** with live progress and a stop button, or add or refresh a single college page. Also shows recent runs and errors. An automatic re-crawl runs every Sunday at 02:00 (`CRAWL_SCHEDULE_*`) |
 | Official answers | The college's own Q&A, used **before** the website. A close match is answered word for word; a partial match becomes the AI's main source. Use the test box to check how a question matches |
-| Unanswered / Feedback | Questions the bot couldn't answer, and thumbs-down answers. Only the question text is kept, and entries are deleted after 30 days (`RETENTION_DAYS`) |
+| Unanswered / Feedback | Questions the bot couldn't answer, and thumbs-down answers. Only the question text is kept, and entries are deleted after 5 days (`RETENTION_DAYS`) |
 | Users | Super admin only. Add editors, reset passwords, deactivate accounts |
 | Account | Change your password; turn on two-step login with an authenticator app |
 | Audit log | Who uploaded, deleted, edited or crawled what, and when |
